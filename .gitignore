@@ -12,3 +12,4 @@ web/dist/
 .pytest_cache/
 .coverage
 .claude/
+.DS_Store

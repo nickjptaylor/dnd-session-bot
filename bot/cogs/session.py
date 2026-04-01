@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import discord
@@ -5,6 +6,7 @@ from discord.ext import commands
 
 from bot.ui.embeds import session_started_embed, session_stopped_embed
 from bot.voice.recorder import recorder
+from core.services.session_processor import get_or_create_campaign, process_session_audio
 
 log = logging.getLogger(__name__)
 
@@ -72,12 +74,7 @@ class SessionCog(commands.Cog):
         if not await safe_defer(ctx):
             # Still stop the recording even if interaction expired
             if recorder.is_recording(ctx.guild_id):
-                duration = recorder.get_duration(ctx.guild_id)
-                audio_data = await recorder.stop_recording(ctx.guild_id)
-                total_bytes = sum(buf.getbuffer().nbytes for buf in audio_data.values())
-                log.info(f"Captured {total_bytes / 1024:.1f} KB of audio from {len(audio_data)} user(s)")
-                embed = session_stopped_embed(duration_seconds=duration, user_count=len(audio_data))
-                await ctx.channel.send(embed=embed)
+                await self._stop_and_process(ctx.guild_id, ctx.author.id, ctx.guild, ctx.channel)
             return
 
         if not recorder.is_recording(ctx.guild_id):
@@ -85,6 +82,7 @@ class SessionCog(commands.Cog):
             return
 
         duration = recorder.get_duration(ctx.guild_id)
+        voice_channel_id = recorder.get_channel_id(ctx.guild_id)
 
         try:
             audio_data = await recorder.stop_recording(ctx.guild_id)
@@ -101,6 +99,81 @@ class SessionCog(commands.Cog):
             user_count=len(audio_data),
         )
         await safe_send(ctx, embed=embed)
+
+        # Fire background transcription
+        await self._launch_processing(
+            guild=ctx.guild,
+            voice_channel_id=voice_channel_id,
+            started_by=ctx.author.id,
+            duration=duration,
+            audio_data=audio_data,
+            channel=ctx.channel,
+        )
+
+    async def _stop_and_process(
+        self,
+        guild_id: int,
+        started_by: int,
+        guild: discord.Guild,
+        channel: discord.TextChannel,
+    ):
+        """Stop recording and process even when the interaction expired."""
+        voice_channel_id = recorder.get_channel_id(guild_id)
+        duration = recorder.get_duration(guild_id)
+        audio_data = await recorder.stop_recording(guild_id)
+
+        total_bytes = sum(buf.getbuffer().nbytes for buf in audio_data.values())
+        log.info(f"Captured {total_bytes / 1024:.1f} KB of audio from {len(audio_data)} user(s)")
+
+        embed = session_stopped_embed(duration_seconds=duration, user_count=len(audio_data))
+        await channel.send(embed=embed)
+
+        await self._launch_processing(
+            guild=guild,
+            voice_channel_id=voice_channel_id,
+            started_by=started_by,
+            duration=duration,
+            audio_data=audio_data,
+            channel=channel,
+        )
+
+    async def _launch_processing(
+        self,
+        guild: discord.Guild,
+        voice_channel_id: int | None,
+        started_by: int,
+        duration: float,
+        audio_data: dict,
+        channel: discord.TextChannel,
+    ):
+        """Resolve campaign + user names, then fire background transcription task."""
+        # Build user_names mapping
+        user_names = {}
+        for user_id in audio_data:
+            member = guild.get_member(user_id)
+            user_names[user_id] = member.display_name if member else f"User-{user_id}"
+
+        # Get or create campaign for this guild
+        try:
+            campaign_id = await get_or_create_campaign(guild.id, started_by)
+        except Exception:
+            log.exception("Failed to resolve campaign — skipping transcription")
+            await channel.send("Could not connect to the database. Transcription skipped.")
+            return
+
+        asyncio.create_task(
+            process_session_audio(
+                guild_id=guild.id,
+                voice_channel_id=voice_channel_id or 0,
+                started_by=started_by,
+                campaign_id=campaign_id,
+                duration_seconds=duration,
+                audio_data=audio_data,
+                user_names=user_names,
+                channel=channel,
+            )
+        )
+        log.info(f"Background transcription task launched for guild {guild.id}")
 
     @session.command(description="Check if a recording is active")
     async def status(self, ctx: discord.ApplicationContext):

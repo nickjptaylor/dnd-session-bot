@@ -1,8 +1,10 @@
 import io
 import logging
 import time
+import wave
 
 import discord
+from discord.opus import Decoder as OpusDecoder
 
 log = logging.getLogger(__name__)
 
@@ -14,9 +16,13 @@ class VoiceRecorder:
         self._active_connections: dict[int, discord.VoiceClient] = {}
         self._active_sinks: dict[int, discord.sinks.WaveSink] = {}
         self._start_times: dict[int, float] = {}
+        self._channel_ids: dict[int, int] = {}
 
     def is_recording(self, guild_id: int) -> bool:
         return guild_id in self._active_connections
+
+    def get_channel_id(self, guild_id: int) -> int | None:
+        return self._channel_ids.get(guild_id)
 
     def get_duration(self, guild_id: int) -> float:
         if guild_id in self._start_times:
@@ -49,6 +55,7 @@ class VoiceRecorder:
         self._active_connections[guild_id] = vc
         self._active_sinks[guild_id] = sink
         self._start_times[guild_id] = time.time()
+        self._channel_ids[guild_id] = voice_channel.id
 
         log.info(f"Started recording in {voice_channel.name} (guild {guild_id})")
         return vc
@@ -65,14 +72,24 @@ class VoiceRecorder:
         sink = self._active_sinks.pop(guild_id)
         duration = self.get_duration(guild_id)
         self._start_times.pop(guild_id, None)
+        self._channel_ids.pop(guild_id, None)
 
         try:
             # Grab raw audio data before stop_recording triggers cleanup/formatting
             # which can fail on the new Pycord voice internals
             audio_data: dict[int, io.BytesIO] = {}
-            for user_id, audio in sink.audio_data.items():
+            for user, audio in sink.audio_data.items():
+                user_id = user.id if hasattr(user, "id") else user
                 audio.file.seek(0)
-                audio_data[user_id] = audio.file
+                pcm_data = audio.file.read()
+                wav_buf = io.BytesIO()
+                with wave.open(wav_buf, "wb") as wf:
+                    wf.setnchannels(OpusDecoder.CHANNELS)
+                    wf.setsampwidth(OpusDecoder.SAMPLE_SIZE // OpusDecoder.CHANNELS)
+                    wf.setframerate(OpusDecoder.SAMPLING_RATE)
+                    wf.writeframes(pcm_data)
+                wav_buf.seek(0)
+                audio_data[user_id] = wav_buf
 
             try:
                 vc.stop_recording()

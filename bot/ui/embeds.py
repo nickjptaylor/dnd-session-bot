@@ -26,5 +26,5 @@ def session_stopped_embed(
         description=f"Recorded **{minutes}m {seconds}s** of audio from **{user_count}** participant(s)",
         color=discord.Color.red(),
     )
-    embed.set_footer(text="Processing pipeline will run automatically in future phases")
+    embed.set_footer(text="Transcription processing in background...")
     return embed

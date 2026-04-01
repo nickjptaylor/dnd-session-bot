@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
+    # Debug — set to your Discord server ID for instant command registration
+    debug_guild_ids: str = ""
+
     # S3
     s3_endpoint: str = "http://localhost:9000"
     s3_access_key: str = "minioadmin"

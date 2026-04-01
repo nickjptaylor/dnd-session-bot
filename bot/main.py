@@ -7,6 +7,10 @@ from bot.config import settings
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("dnd-bot")
 
+# Suppress noisy voice receive logs that flood the console during recording
+logging.getLogger("discord.voice.receive.reader").setLevel(logging.WARNING)
+logging.getLogger("discord.voice.receive.router").setLevel(logging.WARNING)
+
 bot = discord.Bot(intents=discord.Intents.default() | discord.Intents.voice_states)
 
 
@@ -14,6 +18,10 @@ bot = discord.Bot(intents=discord.Intents.default() | discord.Intents.voice_stat
 async def on_ready():
     log.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
     log.info(f"Connected to {len(bot.guilds)} guild(s)")
+    for guild in bot.guilds:
+        log.info(f"  Guild: {guild.name} (ID: {guild.id})")
+    await bot.sync_commands()
+    log.info("Commands synced")
 
 
 def run():

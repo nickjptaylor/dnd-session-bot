@@ -1,35 +1,27 @@
 import io
 import logging
 import time
-from collections import defaultdict
 
 import discord
 
 log = logging.getLogger(__name__)
 
 
-class SessionSink(discord.sinks.WaveSink):
-    """Extended WaveSink that tracks per-user audio data for a session."""
-
-    def __init__(self):
-        super().__init__()
-        self.start_time: float = time.time()
-        self.user_audio: dict[int, list[bytes]] = defaultdict(list)
-
-    @property
-    def duration_seconds(self) -> float:
-        return time.time() - self.start_time
-
-
 class VoiceRecorder:
     """Manages voice recording for active sessions."""
 
     def __init__(self):
-        self._active_connections: dict[int, discord.VoiceClient] = {}  # guild_id -> vc
-        self._active_sinks: dict[int, SessionSink] = {}  # guild_id -> sink
+        self._active_connections: dict[int, discord.VoiceClient] = {}
+        self._active_sinks: dict[int, discord.sinks.WaveSink] = {}
+        self._start_times: dict[int, float] = {}
 
     def is_recording(self, guild_id: int) -> bool:
         return guild_id in self._active_connections
+
+    def get_duration(self, guild_id: int) -> float:
+        if guild_id in self._start_times:
+            return time.time() - self._start_times[guild_id]
+        return 0.0
 
     async def start_recording(
         self, voice_channel: discord.VoiceChannel
@@ -46,16 +38,17 @@ class VoiceRecorder:
             await existing_vc.disconnect(force=True)
 
         vc = await voice_channel.connect()
-        sink = SessionSink()
+        sink = discord.sinks.WaveSink()
 
         try:
-            vc.start_recording(sink, self._on_recording_finished, voice_channel)
+            vc.start_recording(sink, self._on_recording_finished)
         except Exception:
             await vc.disconnect(force=True)
             raise
 
         self._active_connections[guild_id] = vc
         self._active_sinks[guild_id] = sink
+        self._start_times[guild_id] = time.time()
 
         log.info(f"Started recording in {voice_channel.name} (guild {guild_id})")
         return vc
@@ -70,25 +63,36 @@ class VoiceRecorder:
 
         vc = self._active_connections.pop(guild_id)
         sink = self._active_sinks.pop(guild_id)
+        duration = self.get_duration(guild_id)
+        self._start_times.pop(guild_id, None)
 
         try:
-            vc.stop_recording()
-
+            # Grab raw audio data before stop_recording triggers cleanup/formatting
+            # which can fail on the new Pycord voice internals
             audio_data: dict[int, io.BytesIO] = {}
             for user_id, audio in sink.audio_data.items():
+                audio.file.seek(0)
                 audio_data[user_id] = audio.file
+
+            try:
+                vc.stop_recording()
+            except Exception as e:
+                log.warning(f"Error during stop_recording cleanup (audio already captured): {e}")
         finally:
             await vc.disconnect(force=True)
 
         log.info(
             f"Stopped recording in guild {guild_id}. "
             f"Captured audio from {len(audio_data)} user(s), "
-            f"duration: {sink.duration_seconds:.1f}s"
+            f"duration: {duration:.1f}s"
         )
         return audio_data
 
-    def _on_recording_finished(self, sink: discord.sinks.Sink, channel: discord.VoiceChannel):
-        log.info(f"Recording finished callback for {channel.name}")
+    def _on_recording_finished(self, error: Exception | None) -> None:
+        if error:
+            log.error(f"Recording error: {error}")
+        else:
+            log.info("Recording finished")
 
 
 # Singleton recorder instance

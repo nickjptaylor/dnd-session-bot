@@ -39,10 +39,20 @@ class VoiceRecorder:
         if self.is_recording(guild_id):
             raise RuntimeError("Already recording in this server")
 
+        # Clean up any stale voice connection from a previous failed attempt
+        existing_vc = voice_channel.guild.voice_client
+        if existing_vc:
+            log.warning(f"Found stale voice connection in guild {guild_id}, disconnecting")
+            await existing_vc.disconnect(force=True)
+
         vc = await voice_channel.connect()
         sink = SessionSink()
 
-        vc.start_recording(sink, self._on_recording_finished, voice_channel)
+        try:
+            vc.start_recording(sink, self._on_recording_finished, voice_channel)
+        except Exception:
+            await vc.disconnect(force=True)
+            raise
 
         self._active_connections[guild_id] = vc
         self._active_sinks[guild_id] = sink
@@ -58,21 +68,17 @@ class VoiceRecorder:
         if not self.is_recording(guild_id):
             raise RuntimeError("Not recording in this server")
 
-        vc = self._active_connections[guild_id]
-        vc.stop_recording()
+        vc = self._active_connections.pop(guild_id)
+        sink = self._active_sinks.pop(guild_id)
 
-        # Audio data is collected via the callback, but we can also
-        # access it from the sink directly
-        sink = self._active_sinks[guild_id]
-        audio_data: dict[int, io.BytesIO] = {}
+        try:
+            vc.stop_recording()
 
-        for user_id, audio in sink.audio_data.items():
-            audio_data[user_id] = audio.file
-
-        await vc.disconnect()
-
-        del self._active_connections[guild_id]
-        del self._active_sinks[guild_id]
+            audio_data: dict[int, io.BytesIO] = {}
+            for user_id, audio in sink.audio_data.items():
+                audio_data[user_id] = audio.file
+        finally:
+            await vc.disconnect(force=True)
 
         log.info(
             f"Stopped recording in guild {guild_id}. "

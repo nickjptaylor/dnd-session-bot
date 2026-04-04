@@ -449,22 +449,42 @@ async def process_session_audio(
             await channel.send("Something went wrong processing the session. Check the logs for details.")
 
 
-async def get_or_create_campaign(guild_id: int, created_by: int) -> uuid.UUID:
-    """Get the campaign for a guild, or auto-create a default one."""
+async def get_active_campaign(guild_id: int) -> Campaign | None:
+    """Get the active campaign for a guild (prefers is_active=True, falls back to newest)."""
     async with async_session() as db:
+        # First try: active campaign
         result = await db.execute(
-            select(Campaign).where(Campaign.guild_id == guild_id).limit(1)
+            select(Campaign)
+            .where(Campaign.guild_id == guild_id, Campaign.is_active == True)  # noqa: E712
+            .limit(1)
         )
         campaign = result.scalar_one_or_none()
-
         if campaign:
-            return campaign.id
+            return campaign
 
+        # Fallback: any campaign for this guild (newest first)
+        result = await db.execute(
+            select(Campaign)
+            .where(Campaign.guild_id == guild_id)
+            .order_by(Campaign.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
+async def get_or_create_campaign(guild_id: int, created_by: int) -> uuid.UUID:
+    """Get the active campaign for a guild, or auto-create a default one."""
+    campaign = await get_active_campaign(guild_id)
+    if campaign:
+        return campaign.id
+
+    async with async_session() as db:
         campaign = Campaign(
             name="Default Campaign",
             description="Auto-created campaign for session tracking",
             guild_id=guild_id,
             created_by_discord_id=created_by,
+            is_active=True,
         )
         db.add(campaign)
         await db.commit()

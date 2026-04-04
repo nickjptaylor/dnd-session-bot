@@ -4,6 +4,7 @@ import discord
 from discord.ext import commands
 from sqlalchemy import select
 
+from bot.cogs.campaign import get_active_campaign_for_guild
 from core.db import async_session
 from core.models.campaign import Campaign
 from core.models.character import Character, CharacterReference
@@ -34,12 +35,8 @@ class CharacterCog(commands.Cog):
 
         try:
             async with async_session() as db:
-                # Get or create campaign
-                result = await db.execute(
-                    select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-                )
-                campaign = result.scalar_one_or_none()
-                log.info(f"Found campaign: {campaign.id if campaign else 'None'}")
+                # Get active campaign or create default
+                campaign = await get_active_campaign_for_guild(ctx.guild_id)
 
                 if not campaign:
                     campaign = Campaign(
@@ -47,10 +44,17 @@ class CharacterCog(commands.Cog):
                         description="Auto-created campaign",
                         guild_id=ctx.guild_id,
                         created_by_discord_id=ctx.author.id,
+                        is_active=True,
                     )
                     db.add(campaign)
                     await db.flush()
                     log.info(f"Created campaign: {campaign.id}")
+                else:
+                    # Re-fetch in this session
+                    result = await db.execute(select(Campaign).where(Campaign.id == campaign.id))
+                    campaign = result.scalar_one()
+
+                log.info(f"Using campaign: {campaign.id} ({campaign.name})")
 
                 # Check if this user already has a character in this campaign
                 result = await db.execute(
@@ -63,7 +67,7 @@ class CharacterCog(commands.Cog):
 
                 if existing:
                     await ctx.followup.send(
-                        f"You already have **{existing.name}** registered. "
+                        f"You already have **{existing.name}** registered in **{campaign.name}**. "
                         f"Use `/character update` to change details or `/character delete` to remove them."
                     )
                     return
@@ -93,7 +97,7 @@ class CharacterCog(commands.Cog):
             embed.add_field(name="Level", value=str(level), inline=True)
             if description:
                 embed.add_field(name="Description", value=description, inline=False)
-            embed.set_footer(text="Use /character upload to add a reference image")
+            embed.set_footer(text=f"Campaign: {campaign.name} · Use /character upload to add a reference image")
             await ctx.followup.send(embed=embed)
 
         except Exception as e:
@@ -112,16 +116,13 @@ class CharacterCog(commands.Cog):
             await ctx.followup.send("Please upload an image file (PNG, JPG, etc.)")
             return
 
+        campaign = await get_active_campaign_for_guild(ctx.guild_id)
+
+        if not campaign:
+            await ctx.followup.send("No campaign found. Use `/character create` first.")
+            return
+
         async with async_session() as db:
-            result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-            )
-            campaign = result.scalar_one_or_none()
-
-            if not campaign:
-                await ctx.followup.send("No campaign found. Use `/character create` first.")
-                return
-
             result = await db.execute(
                 select(Character).where(
                     Character.campaign_id == campaign.id,
@@ -169,16 +170,13 @@ class CharacterCog(commands.Cog):
     async def list(self, ctx: discord.ApplicationContext):
         await ctx.defer()
 
+        campaign = await get_active_campaign_for_guild(ctx.guild_id)
+
+        if not campaign:
+            await ctx.followup.send("No campaign found. Use `/campaign create` to start one.")
+            return
+
         async with async_session() as db:
-            result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-            )
-            campaign = result.scalar_one_or_none()
-
-            if not campaign:
-                await ctx.followup.send("No campaign found. Use `/campaign create` to start one.")
-                return
-
             result = await db.execute(
                 select(Character).where(Character.campaign_id == campaign.id)
             )
@@ -189,7 +187,7 @@ class CharacterCog(commands.Cog):
             return
 
         embed = discord.Embed(
-            title="Party Members",
+            title=f"Party Members — {campaign.name}",
             color=discord.Color.green(),
         )
         for char in characters:
@@ -217,16 +215,13 @@ class CharacterCog(commands.Cog):
     async def view(self, ctx: discord.ApplicationContext):
         await ctx.defer()
 
+        campaign = await get_active_campaign_for_guild(ctx.guild_id)
+
+        if not campaign:
+            await ctx.followup.send("No campaign found.")
+            return
+
         async with async_session() as db:
-            result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-            )
-            campaign = result.scalar_one_or_none()
-
-            if not campaign:
-                await ctx.followup.send("No campaign found.")
-                return
-
             result = await db.execute(
                 select(Character).where(
                     Character.campaign_id == campaign.id,
@@ -251,6 +246,7 @@ class CharacterCog(commands.Cog):
             embed.add_field(name="Level", value=str(char.level), inline=True)
         if char.description:
             embed.add_field(name="Description", value=char.description, inline=False)
+        embed.set_footer(text=f"Campaign: {campaign.name}")
 
         await ctx.followup.send(embed=embed)
 

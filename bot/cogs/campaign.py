@@ -2,7 +2,7 @@ import logging
 
 import discord
 from discord.ext import commands
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from core.db import async_session
 from core.models.campaign import Campaign, HomebrewContent
@@ -10,6 +10,29 @@ from core.models.campaign import Campaign, HomebrewContent
 log = logging.getLogger(__name__)
 
 CONTENT_TYPES = ["lore", "npc", "location", "rule", "item"]
+
+
+async def get_active_campaign_for_guild(guild_id: int) -> Campaign | None:
+    """Get the active campaign for a guild (prefers is_active=True, falls back to newest)."""
+    async with async_session() as db:
+        # First: active campaign
+        result = await db.execute(
+            select(Campaign)
+            .where(Campaign.guild_id == guild_id, Campaign.is_active == True)  # noqa: E712
+            .limit(1)
+        )
+        campaign = result.scalar_one_or_none()
+        if campaign:
+            return campaign
+
+        # Fallback: newest campaign
+        result = await db.execute(
+            select(Campaign)
+            .where(Campaign.guild_id == guild_id)
+            .order_by(Campaign.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
 
 class CampaignCog(commands.Cog):
@@ -26,11 +49,19 @@ class CampaignCog(commands.Cog):
         await ctx.defer()
 
         async with async_session() as db:
+            # Deactivate other campaigns in this guild — new one becomes active
+            await db.execute(
+                update(Campaign)
+                .where(Campaign.guild_id == ctx.guild_id)
+                .values(is_active=False)
+            )
+
             campaign = Campaign(
                 name=name,
                 description=description or None,
                 guild_id=ctx.guild_id,
                 created_by_discord_id=ctx.author.id,
+                is_active=True,
             )
             db.add(campaign)
             await db.commit()
@@ -42,7 +73,7 @@ class CampaignCog(commands.Cog):
         )
         if description:
             embed.add_field(name="Description", value=description, inline=False)
-        embed.set_footer(text="Sessions will be tracked under this campaign")
+        embed.set_footer(text="This is now the active campaign for this server")
         await ctx.followup.send(embed=embed)
         log.info(f"Campaign '{name}' created by {ctx.author} in guild {ctx.guild_id}")
 
@@ -52,7 +83,9 @@ class CampaignCog(commands.Cog):
 
         async with async_session() as db:
             result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id)
+                select(Campaign)
+                .where(Campaign.guild_id == ctx.guild_id)
+                .order_by(Campaign.created_at)
             )
             campaigns = result.scalars().all()
 
@@ -65,10 +98,50 @@ class CampaignCog(commands.Cog):
             color=discord.Color.gold(),
         )
         for c in campaigns:
+            active_marker = " ✅" if c.is_active else ""
             desc = c.description or "No description"
-            embed.add_field(name=c.name, value=desc, inline=False)
+            embed.add_field(name=f"{c.name}{active_marker}", value=desc, inline=False)
+
+        if len(campaigns) > 1:
+            embed.set_footer(text="✅ = active campaign · Use /campaign select to switch")
 
         await ctx.followup.send(embed=embed)
+
+    @campaign.command(description="Switch the active campaign for this server")
+    async def select(
+        self,
+        ctx: discord.ApplicationContext,
+        name: discord.Option(str, "Name of the campaign to make active"),
+    ):
+        await ctx.defer()
+
+        async with async_session() as db:
+            # Find the campaign by name (case-insensitive)
+            result = await db.execute(
+                select(Campaign).where(
+                    Campaign.guild_id == ctx.guild_id,
+                    func.lower(Campaign.name) == name.lower(),
+                )
+            )
+            target = result.scalar_one_or_none()
+
+            if not target:
+                await ctx.followup.send(
+                    f"No campaign found with name **{name}**. Use `/campaign list` to see all campaigns."
+                )
+                return
+
+            # Deactivate all, then activate the selected one
+            await db.execute(
+                update(Campaign)
+                .where(Campaign.guild_id == ctx.guild_id)
+                .values(is_active=False)
+            )
+            target.is_active = True
+            await db.commit()
+
+        await ctx.followup.send(f"**{target.name}** is now the active campaign. Sessions, homebrew, and characters will use this campaign.")
+        log.info(f"Campaign '{target.name}' selected as active by {ctx.author} in guild {ctx.guild_id}")
 
     @campaign.command(description="Set where session summaries are posted for this campaign")
     async def setchannel(
@@ -80,14 +153,15 @@ class CampaignCog(commands.Cog):
         await ctx.defer()
 
         async with async_session() as db:
-            result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-            )
-            campaign = result.scalar_one_or_none()
+            campaign = await get_active_campaign_for_guild(ctx.guild_id)
 
             if not campaign:
                 await ctx.followup.send("No campaign found. Create one first with `/campaign create`.")
                 return
+
+            # Re-fetch within this session for modification
+            result = await db.execute(select(Campaign).where(Campaign.id == campaign.id))
+            campaign = result.scalar_one()
 
             campaign.summary_channel_id = channel.id if channel else None
             campaign.summary_mode = mode
@@ -113,20 +187,22 @@ class CampaignCog(commands.Cog):
         await ctx.defer()
 
         async with async_session() as db:
-            result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-            )
-            campaign = result.scalar_one_or_none()
+            campaign = await get_active_campaign_for_guild(ctx.guild_id)
 
             if not campaign:
                 await ctx.followup.send("No campaign found. Create one first with `/campaign create`.")
                 return
 
+            # Re-fetch within this session for modification
+            result = await db.execute(select(Campaign).where(Campaign.id == campaign.id))
+            campaign = result.scalar_one()
+
             campaign.dm_discord_id = dm.id
             await db.commit()
+            campaign_name = campaign.name
 
-        await ctx.followup.send(f"**{dm.display_name}** is now the DM for this campaign. Their speech will be treated as narration/NPCs in transcripts, and they'll receive DM coaching notes after each session.")
-        log.info(f"DM set to {dm} (ID: {dm.id}) for campaign '{campaign.name}' in guild {ctx.guild_id}")
+        await ctx.followup.send(f"**{dm.display_name}** is now the DM for **{campaign_name}**. Their speech will be treated as narration/NPCs in transcripts, and they'll receive DM coaching notes after each session.")
+        log.info(f"DM set to {dm} (ID: {dm.id}) for campaign '{campaign_name}' in guild {ctx.guild_id}")
 
     # --- Homebrew content commands ---
 
@@ -140,16 +216,13 @@ class CampaignCog(commands.Cog):
     ):
         await ctx.defer()
 
+        campaign = await get_active_campaign_for_guild(ctx.guild_id)
+
+        if not campaign:
+            await ctx.followup.send("No campaign found. Create one first with `/campaign create`.")
+            return
+
         async with async_session() as db:
-            result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-            )
-            campaign = result.scalar_one_or_none()
-
-            if not campaign:
-                await ctx.followup.send("No campaign found. Create one first with `/campaign create`.")
-                return
-
             entry = HomebrewContent(
                 campaign_id=campaign.id,
                 title=title,
@@ -166,6 +239,7 @@ class CampaignCog(commands.Cog):
             title=f"{emoji} Homebrew Added",
             color=discord.Color.dark_gold(),
         )
+        embed.add_field(name="Campaign", value=campaign.name, inline=True)
         embed.add_field(name="Type", value=content_type.capitalize(), inline=True)
         embed.add_field(name="Title", value=title, inline=True)
         embed.add_field(name="Content", value=content[:1024], inline=False)
@@ -181,16 +255,13 @@ class CampaignCog(commands.Cog):
     ):
         await ctx.defer()
 
+        campaign = await get_active_campaign_for_guild(ctx.guild_id)
+
+        if not campaign:
+            await ctx.followup.send("No campaign found. Create one first with `/campaign create`.")
+            return
+
         async with async_session() as db:
-            result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-            )
-            campaign = result.scalar_one_or_none()
-
-            if not campaign:
-                await ctx.followup.send("No campaign found. Create one first with `/campaign create`.")
-                return
-
             query = select(HomebrewContent).where(HomebrewContent.campaign_id == campaign.id)
             if content_type:
                 query = query.where(HomebrewContent.content_type == content_type)
@@ -211,8 +282,6 @@ class CampaignCog(commands.Cog):
             color=discord.Color.dark_gold(),
         )
 
-        # Group by type
-        current_type = None
         for entry in entries:
             emoji = type_emoji.get(entry.content_type, "📝")
             preview = entry.content[:100] + ("..." if len(entry.content) > 100 else "")
@@ -233,16 +302,13 @@ class CampaignCog(commands.Cog):
     ):
         await ctx.defer()
 
+        campaign = await get_active_campaign_for_guild(ctx.guild_id)
+
+        if not campaign:
+            await ctx.followup.send("No campaign found.")
+            return
+
         async with async_session() as db:
-            result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-            )
-            campaign = result.scalar_one_or_none()
-
-            if not campaign:
-                await ctx.followup.send("No campaign found.")
-                return
-
             result = await db.execute(
                 select(HomebrewContent).where(
                     HomebrewContent.campaign_id == campaign.id,
@@ -264,6 +330,7 @@ class CampaignCog(commands.Cog):
             color=discord.Color.dark_gold(),
         )
         embed.add_field(name="Type", value=entry.content_type.capitalize(), inline=True)
+        embed.add_field(name="Campaign", value=campaign.name, inline=True)
         embed.set_footer(text=f"Created {entry.created_at.strftime('%b %d, %Y')}")
         await ctx.followup.send(embed=embed)
 
@@ -275,16 +342,13 @@ class CampaignCog(commands.Cog):
     ):
         await ctx.defer()
 
+        campaign = await get_active_campaign_for_guild(ctx.guild_id)
+
+        if not campaign:
+            await ctx.followup.send("No campaign found.")
+            return
+
         async with async_session() as db:
-            result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-            )
-            campaign = result.scalar_one_or_none()
-
-            if not campaign:
-                await ctx.followup.send("No campaign found.")
-                return
-
             result = await db.execute(
                 select(HomebrewContent).where(
                     HomebrewContent.campaign_id == campaign.id,
@@ -302,7 +366,7 @@ class CampaignCog(commands.Cog):
             await db.delete(entry)
             await db.commit()
 
-        await ctx.followup.send(f"Removed **{entry_title}** ({entry_type}) from the campaign.")
+        await ctx.followup.send(f"Removed **{entry_title}** ({entry_type}) from **{campaign.name}**.")
         log.info(f"Homebrew '{entry_title}' removed from campaign '{campaign.name}' by {ctx.author}")
 
 

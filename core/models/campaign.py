@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import BigInteger, ForeignKey, String, Text
+from sqlalchemy import BigInteger, Boolean, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,6 +15,7 @@ class Campaign(Base, UUIDPrimaryKey, TimestampMixin):
     guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
     created_by_discord_id: Mapped[int] = mapped_column(BigInteger)
     dm_discord_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
 
     # Where to post session summaries: "channel" posts directly, "thread" creates a new thread per session
     summary_channel_id: Mapped[int | None] = mapped_column(BigInteger)

@@ -5,8 +5,8 @@ from discord.ext import commands
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from bot.cogs.campaign import get_active_campaign_for_guild
 from core.db import async_session
-from core.models.campaign import Campaign
 from core.models.session import Session
 from core.models.summary import SessionSummary
 
@@ -25,17 +25,13 @@ class SummaryCog(commands.Cog):
     async def last(self, ctx: discord.ApplicationContext):
         await ctx.defer()
 
+        campaign = await get_active_campaign_for_guild(ctx.guild_id)
+
+        if not campaign:
+            await ctx.followup.send("No campaigns found. Record a session first with `/session start`.")
+            return
+
         async with async_session() as db:
-            # Find the most recent completed session for this guild's campaign
-            result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-            )
-            campaign = result.scalar_one_or_none()
-
-            if not campaign:
-                await ctx.followup.send("No campaigns found. Record a session first with `/session start`.")
-                return
-
             result = await db.execute(
                 select(Session)
                 .where(Session.campaign_id == campaign.id, Session.status == "complete")
@@ -67,6 +63,7 @@ class SummaryCog(commands.Cog):
         )
         if session.title:
             summary_embed.title = session.title
+        summary_embed.set_footer(text=f"Campaign: {campaign.name}")
         await ctx.followup.send(embed=summary_embed)
 
         # Send key moments if any
@@ -88,16 +85,13 @@ class SummaryCog(commands.Cog):
     async def history(self, ctx: discord.ApplicationContext):
         await ctx.defer()
 
+        campaign = await get_active_campaign_for_guild(ctx.guild_id)
+
+        if not campaign:
+            await ctx.followup.send("No campaigns found.")
+            return
+
         async with async_session() as db:
-            result = await db.execute(
-                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
-            )
-            campaign = result.scalar_one_or_none()
-
-            if not campaign:
-                await ctx.followup.send("No campaigns found.")
-                return
-
             result = await db.execute(
                 select(Session)
                 .where(Session.campaign_id == campaign.id, Session.status == "complete")

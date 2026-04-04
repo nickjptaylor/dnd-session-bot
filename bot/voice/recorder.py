@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 import time
@@ -44,13 +45,28 @@ class VoiceRecorder:
             await existing_vc.disconnect(force=True)
 
         vc = await voice_channel.connect()
+
+        # Wait for DAVE (Discord Audio/Video Encryption) handshake to complete.
+        # Without this delay, the opus decoder hits "corrupted stream" errors
+        # on the first few packets before encryption is fully negotiated.
+        log.info("Waiting for DAVE handshake to settle...")
+        await asyncio.sleep(3)
+
         sink = discord.sinks.WaveSink()
 
-        try:
-            vc.start_recording(sink, self._on_recording_finished)
-        except Exception:
-            await vc.disconnect(force=True)
-            raise
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                vc.start_recording(sink, self._on_recording_finished)
+                break
+            except Exception as e:
+                if attempt < max_retries:
+                    log.warning(f"Recording start attempt {attempt} failed ({e}), retrying in 2s...")
+                    await asyncio.sleep(2)
+                    sink = discord.sinks.WaveSink()  # fresh sink for retry
+                else:
+                    await vc.disconnect(force=True)
+                    raise
 
         self._active_connections[guild_id] = vc
         self._active_sinks[guild_id] = sink

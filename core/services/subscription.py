@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass
 
 import httpx
+from sqlalchemy import select
 
 from bot.config import settings
 
@@ -13,7 +14,7 @@ TIER_LIMITS = {
     "free": {
         "name": "Apprentice",
         "campaigns": 1,
-        "sessions_per_month": 999,
+        "sessions_per_month": 2,
         "session_length_hours": 4,
         "portraits_per_session": 0,
         "dm_tips": False,
@@ -130,3 +131,73 @@ def get_limit(limits: dict, key: str) -> int | None:
     if limits.get("name") == "Guild Master" and value == 0:
         return None  # unlimited
     return value
+
+
+async def get_guild_subscription(guild_id: int) -> tuple[dict, str]:
+    """Get the best subscription tier for a guild.
+
+    Checks all linked users in the guild and returns the highest tier.
+    This means one person paying covers the entire server.
+
+    Returns:
+        (limits_dict, tier_name)
+    """
+    from core.db import async_session
+    from core.models.user_link import UserLink
+
+    best_limits = TIER_LIMITS["free"]
+    best_tier = "Apprentice"
+    best_product_id = None
+
+    # Tier priority order (higher index = better tier)
+    tier_priority = {
+        "free": 0,
+        "prod_UFzp7ylPjjYICA": 1,  # Tavern Regular
+        "prod_UGBhmLly8JXtcH": 2,  # Adventurer
+        "prod_UFtjWnJa0EOTqX": 3,  # Guild Master
+    }
+
+    async with async_session() as db:
+        # Find all linked users in this guild
+        result = await db.execute(
+            select(UserLink).where(UserLink.guild_id == guild_id)
+        )
+        links = result.scalars().all()
+
+    if not links:
+        return best_limits, best_tier
+
+    # Check each linked user's subscription and pick the best
+    for link in links:
+        try:
+            sub = await check_subscription(link.email)
+
+            # Update cached tier
+            async with async_session() as db:
+                result = await db.execute(
+                    select(UserLink).where(UserLink.id == link.id)
+                )
+                user_link = result.scalar_one()
+                user_link.stripe_product_id = sub.product_id
+                user_link.subscription_tier = sub.tier_name.lower().replace(" ", "_")
+                await db.commit()
+
+            product = sub.product_id or "free"
+            if tier_priority.get(product, 0) > tier_priority.get(best_product_id or "free", 0):
+                best_limits = sub.limits
+                best_tier = sub.tier_name
+                best_product_id = product
+
+        except Exception:
+            log.warning(f"Failed to check subscription for {link.email}, using cached tier")
+            # Fall back to cached tier
+            cached_product = link.stripe_product_id or "free"
+            if cached_product in TIER_LIMITS:
+                priority = tier_priority.get(cached_product, 0)
+                if priority > tier_priority.get(best_product_id or "free", 0):
+                    best_limits = TIER_LIMITS[cached_product]
+                    best_tier = best_limits["name"]
+                    best_product_id = cached_product
+
+    log.info(f"Guild {guild_id} subscription: {best_tier} (from {len(links)} linked user(s))")
+    return best_limits, best_tier

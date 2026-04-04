@@ -3,24 +3,42 @@ import logging
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
+from api.routes.bot import router as bot_router
+from api.routes.campaigns import router as campaigns_router
 from api.routes.sessions import router as sessions_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="D&D Session Bot API")
+app = FastAPI(
+    title="Tavern Recap Bot API",
+    description="REST API for the D&D Session Bot — serves data to the Lovable web dashboard",
+    version="1.0.0",
+)
 
+# Allow Lovable frontend to call the API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://tavernrecap.com",
+        "https://www.tavernrecap.com",
+        "https://kowjiumihltsgebyzgox.supabase.co",
+        "http://localhost:5173",  # Local Vite dev
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
-app.include_router(sessions_router, prefix="/api/sessions")
-app.mount("/", StaticFiles(directory="web/dist", html=True), name="static")
+app.include_router(bot_router, prefix="/api/bot", tags=["Bot"])
+app.include_router(campaigns_router, prefix="/api/campaigns", tags=["Campaigns"])
+app.include_router(sessions_router, prefix="/api/sessions", tags=["Sessions"])
+
+
+@app.get("/api/health")
+async def health():
+    """Health check endpoint."""
+    return {"status": "ok", "service": "tavern-recap-bot-api"}
 
 
 def run():

@@ -7,9 +7,10 @@ from bot.config import settings
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("dnd-bot")
 
-# Suppress noisy voice receive logs that flood the console during recording
-logging.getLogger("discord.voice.receive.reader").setLevel(logging.WARNING)
+# Suppress noisy voice/sink logs that flood the console during recording
+logging.getLogger("discord.voice.receive.reader").setLevel(logging.CRITICAL)
 logging.getLogger("discord.voice.receive.router").setLevel(logging.WARNING)
+logging.getLogger("discord.sinks").setLevel(logging.CRITICAL)
 
 # Parse debug guild IDs from comma-separated env var (instant command registration)
 _debug_guilds = (

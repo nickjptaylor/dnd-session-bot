@@ -80,6 +80,7 @@ class SessionCog(commands.Cog):
                     sub = await check_subscription(link.email)
                     limits = sub.limits
                     tier_name = sub.tier_name
+                    log.info(f"Subscription check: {link.email} -> {tier_name} (product={sub.product_id})")
 
                     # Update cached tier
                     link.stripe_product_id = sub.product_id

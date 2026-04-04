@@ -11,9 +11,16 @@ log = logging.getLogger("dnd-bot")
 logging.getLogger("discord.voice.receive.reader").setLevel(logging.WARNING)
 logging.getLogger("discord.voice.receive.router").setLevel(logging.WARNING)
 
+# Parse debug guild IDs from comma-separated env var (instant command registration)
+_debug_guilds = (
+    [int(gid.strip()) for gid in settings.debug_guild_ids.split(",") if gid.strip()]
+    if settings.debug_guild_ids
+    else None
+)
+
 bot = discord.Bot(
     intents=discord.Intents.default() | discord.Intents.voice_states,
-    debug_guilds=[1203373115778924554],
+    debug_guilds=_debug_guilds or discord.utils.MISSING,
 )
 
 

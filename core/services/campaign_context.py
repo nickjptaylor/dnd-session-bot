@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from sqlalchemy import select
 
@@ -9,6 +10,18 @@ from core.db import async_session
 from core.models.campaign import Campaign, HomebrewContent
 
 log = logging.getLogger(__name__)
+
+SRD_BASICS_PATH = Path(__file__).parent.parent / "prompts" / "srd_basics.md"
+_srd_basics_cache: str | None = None
+
+
+def get_srd_basics() -> str:
+    """Load the SRD basics rules reference (cached after first read)."""
+    global _srd_basics_cache
+    if _srd_basics_cache is None:
+        _srd_basics_cache = SRD_BASICS_PATH.read_text()
+        log.info(f"Loaded SRD basics ({len(_srd_basics_cache)} chars)")
+    return _srd_basics_cache
 
 
 @dataclass
@@ -22,6 +35,7 @@ class CampaignWorldContext:
     lore: list[dict] = field(default_factory=list)
     rules: list[dict] = field(default_factory=list)
     items: list[dict] = field(default_factory=list)
+    srd_rules: str | None = None
 
     @property
     def has_homebrew(self) -> bool:
@@ -108,5 +122,8 @@ async def build_campaign_context(campaign_id) -> CampaignWorldContext:
             f"{len(ctx.npcs)} NPCs, {len(ctx.locations)} locations, "
             f"{len(ctx.lore)} lore, {len(ctx.rules)} rules, {len(ctx.items)} items"
         )
+
+    # Always include SRD basics so Claude knows D&D rules
+    ctx.srd_rules = get_srd_basics()
 
     return ctx

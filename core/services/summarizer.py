@@ -36,6 +36,7 @@ class SessionSummarizer:
         campaign_name: str | None = None,
         campaign_description: str | None = None,
         homebrew_context: str | None = None,
+        srd_rules: str | None = None,
     ) -> str:
         """Generate a narrative summary from a session transcript.
 
@@ -47,6 +48,7 @@ class SessionSummarizer:
             campaign_name=campaign_name,
             campaign_description=campaign_description,
             homebrew_context=homebrew_context,
+            srd_rules=srd_rules,
         )
 
         log.info(f"Requesting session summary ({len(transcript)} chars of transcript)")

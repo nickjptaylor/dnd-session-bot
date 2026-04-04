@@ -23,6 +23,7 @@ class DMCoach:
         summary: str,
         campaign_name: str | None = None,
         homebrew_context: str | None = None,
+        srd_rules: str | None = None,
     ) -> str:
         """Generate DM coaching notes based on the session.
 
@@ -33,6 +34,7 @@ class DMCoach:
             summary=summary,
             campaign_name=campaign_name,
             homebrew_context=homebrew_context,
+            srd_rules=srd_rules,
         )
 
         log.info("Requesting DM coaching notes")

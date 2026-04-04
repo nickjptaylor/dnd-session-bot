@@ -34,6 +34,7 @@ class KeyMomentExtractor:
         transcript: str,
         characters: list | None = None,
         homebrew_context: str | None = None,
+        srd_rules: str | None = None,
     ) -> list[ExtractedMoment]:
         """Extract key moments from a session transcript.
 
@@ -43,6 +44,7 @@ class KeyMomentExtractor:
             transcript=transcript,
             characters=characters or [],
             homebrew_context=homebrew_context,
+            srd_rules=srd_rules,
         )
 
         log.info(f"Requesting key moment extraction ({len(transcript)} chars of transcript)")

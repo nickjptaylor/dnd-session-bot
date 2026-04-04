@@ -142,6 +142,7 @@ async def process_session_audio(
         campaign_name = world.campaign_name
         campaign_description = world.campaign_description
         homebrew_text = world.format_for_prompt() if world.has_homebrew else None
+        srd_rules = world.srd_rules
 
         # Look up registered characters for participants
         char_lookup: dict[int, Character] = {}  # discord_user_id -> Character
@@ -184,6 +185,7 @@ async def process_session_audio(
             campaign_name=campaign_name,
             campaign_description=campaign_description,
             homebrew_context=homebrew_text,
+            srd_rules=srd_rules,
         )
 
         # 3b: Key moments
@@ -193,6 +195,7 @@ async def process_session_audio(
             transcript=transcript_text,
             characters=characters,
             homebrew_context=homebrew_text,
+            srd_rules=srd_rules,
         )
 
         # 3c: DM coaching (tier-gated)
@@ -205,6 +208,7 @@ async def process_session_audio(
                 summary=narrative,
                 campaign_name=campaign_name,
                 homebrew_context=homebrew_text,
+                srd_rules=srd_rules,
             )
         else:
             log.info(f"DM coaching skipped — not included in {tier_limits.get('name', 'free')} tier")

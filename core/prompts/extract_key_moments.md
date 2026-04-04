@@ -7,6 +7,13 @@ You are analyzing a Dungeons & Dragons session transcript to identify the most m
 {% if not characters %}
 (No character profiles registered — use speaker names from the transcript as both character and player names)
 {% endif %}
+{% if srd_rules %}
+
+## D&D Rules Reference
+Use your rules knowledge to understand what's happening mechanically in the transcript — recognize when players are using class features, casting spells, or triggering conditions, and describe the moments with mechanical accuracy.
+
+{{ srd_rules }}
+{% endif %}
 {% if homebrew_context %}
 
 ## Campaign World

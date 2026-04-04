@@ -1,10 +1,11 @@
 import logging
+import sys
 
 import discord
 
 from bot.config import settings
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stdout)
 log = logging.getLogger("dnd-bot")
 
 # Suppress noisy voice/sink logs that flood the console during recording

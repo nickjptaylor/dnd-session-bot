@@ -66,12 +66,12 @@ class SubscriptionInfo:
 
 async def check_subscription(email: str) -> SubscriptionInfo:
     """Check subscription status by calling the Lovable check-subscription edge function."""
-    url = f"{settings.tavern_recap_supabase_url}/functions/v1/check-subscription"
+    url = f"{settings.tavern_recap_supabase_url}/functions/v1/bot-check-user"
 
     try:
         headers = {"Content-Type": "application/json"}
         if settings.bot_api_key:
-            headers["Authorization"] = f"Bearer {settings.bot_api_key}"
+            headers["x-bot-api-key"] = settings.bot_api_key
 
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.bot import router as bot_router
 from api.routes.campaigns import router as campaigns_router
+from api.routes.link import router as link_router
 from api.routes.sessions import router as sessions_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -33,6 +34,7 @@ app.add_middleware(
 
 app.include_router(bot_router, prefix="/api/bot", tags=["Bot"])
 app.include_router(campaigns_router, prefix="/api/campaigns", tags=["Campaigns"])
+app.include_router(link_router, prefix="/api/link", tags=["Account Linking"])
 app.include_router(sessions_router, prefix="/api/sessions", tags=["Sessions"])
 
 

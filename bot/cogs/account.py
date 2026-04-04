@@ -1,12 +1,14 @@
 import logging
 
+import httpx
 import discord
 from discord.ext import commands
 from sqlalchemy import select
 
+from bot.config import settings
 from core.db import async_session
 from core.models.user_link import UserLink
-from core.services.subscription import check_subscription, get_guild_subscription
+from core.services.subscription import get_guild_subscription
 
 log = logging.getLogger(__name__)
 
@@ -19,64 +21,67 @@ class AccountCog(commands.Cog):
     def __init__(self, bot: discord.Bot):
         self.bot = bot
 
-    @account.command(description="Link your Discord to your tavernrecap.com account")
-    async def link(self, ctx: discord.ApplicationContext, email: str):
+    @account.command(description="Link your tavernrecap.com account using a code from the website")
+    async def link(
+        self,
+        ctx: discord.ApplicationContext,
+        code: discord.Option(str, "The linking code from tavernrecap.com (e.g. TR-7X4K)"),
+    ):
         await ctx.defer(ephemeral=True)
 
-        # Check subscription via Lovable edge function
-        sub = await check_subscription(email)
+        # Call the bot API to verify the code and create the link
+        try:
+            api_url = "http://api:8000/api/link/verify"
+            headers = {"Content-Type": "application/json"}
+            if settings.bot_api_key:
+                headers["x-bot-api-key"] = settings.bot_api_key
 
-        async with async_session() as db:
-            # Check if already linked in this guild
-            result = await db.execute(
-                select(UserLink).where(
-                    UserLink.discord_user_id == ctx.author.id,
-                    UserLink.guild_id == ctx.guild_id,
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    api_url,
+                    json={
+                        "code": code.upper().strip(),
+                        "discord_user_id": ctx.author.id,
+                        "guild_id": ctx.guild_id,
+                    },
+                    headers=headers,
                 )
+
+            if resp.status_code == 400:
+                await ctx.followup.send(
+                    "**Invalid or expired code.** Generate a new one at tavernrecap.com",
+                    ephemeral=True,
+                )
+                return
+
+            resp.raise_for_status()
+            data = resp.json()
+
+        except httpx.ConnectError:
+            # API service might not be running — fall back to error
+            log.error("Could not connect to bot API for code verification")
+            await ctx.followup.send(
+                "Could not verify code — API service unavailable. Try again in a moment.",
+                ephemeral=True,
             )
-            existing = result.scalar_one_or_none()
-
-            if existing:
-                # Update existing link
-                existing.email = email
-                existing.stripe_product_id = sub.product_id
-                existing.subscription_tier = sub.tier_name.lower().replace(" ", "_")
-            else:
-                # Create new link for this guild
-                link = UserLink(
-                    discord_user_id=ctx.author.id,
-                    guild_id=ctx.guild_id,
-                    email=email,
-                    stripe_product_id=sub.product_id,
-                    subscription_tier=sub.tier_name.lower().replace(" ", "_"),
-                )
-                db.add(link)
-
-            await db.commit()
+            return
+        except Exception:
+            log.exception("Failed to verify linking code")
+            await ctx.followup.send(
+                "Something went wrong verifying your code. Try again or generate a new one at tavernrecap.com",
+                ephemeral=True,
+            )
+            return
 
         embed = discord.Embed(
-            title="Account Linked",
-            description=f"Connected to **{email}**",
+            title="Account Linked!",
+            description=f"Connected to **{data['email']}**",
             color=discord.Color.green(),
         )
-        embed.add_field(name="Your Tier", value=sub.tier_name, inline=True)
-
-        limits = sub.limits
-        if limits["sessions_per_month"] == 0 and sub.tier_name == "Guild Master":
-            embed.add_field(name="Sessions/Month", value="Unlimited", inline=True)
-        else:
-            embed.add_field(name="Sessions/Month", value=str(limits["sessions_per_month"]), inline=True)
-
-        if limits["portraits_per_session"] == 0 and sub.tier_name == "Guild Master":
-            embed.add_field(name="Portraits", value="Unlimited", inline=True)
-        elif limits["portraits_per_session"] == 0:
-            embed.add_field(name="Portraits", value="None", inline=True)
-        else:
-            embed.add_field(name="Portraits", value=str(limits["portraits_per_session"]), inline=True)
-
+        embed.add_field(name="Server Tier", value=data["tier_name"], inline=True)
         embed.set_footer(text="Your subscription now covers this entire server!")
         await ctx.followup.send(embed=embed, ephemeral=True)
-        log.info(f"User {ctx.author} linked to {email} ({sub.tier_name}) in guild {ctx.guild_id}")
+        log.info(f"User {ctx.author} linked via code in guild {ctx.guild_id} ({data['tier_name']})")
 
     @account.command(description="Check this server's subscription tier")
     async def status(self, ctx: discord.ApplicationContext):
@@ -122,11 +127,11 @@ class AccountCog(commands.Cog):
         if my_link:
             embed.set_footer(text=f"Your account: {my_link.email}")
         else:
-            embed.set_footer(text="Link your account with /account link to add your subscription to this server")
+            embed.set_footer(text="Link your account at tavernrecap.com to add your subscription to this server")
 
         await ctx.followup.send(embed=embed, ephemeral=True)
 
-    @account.command(description="Unlink your Discord from tavernrecap.com in this server")
+    @account.command(description="Unlink your account from this server")
     async def unlink(self, ctx: discord.ApplicationContext):
         await ctx.defer(ephemeral=True)
 

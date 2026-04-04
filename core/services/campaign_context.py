@@ -30,6 +30,7 @@ class CampaignWorldContext:
 
     campaign_name: str | None = None
     campaign_description: str | None = None
+    dm_discord_id: int | None = None
     npcs: list[dict] = field(default_factory=list)
     locations: list[dict] = field(default_factory=list)
     lore: list[dict] = field(default_factory=list)
@@ -94,6 +95,7 @@ async def build_campaign_context(campaign_id) -> CampaignWorldContext:
 
         ctx.campaign_name = campaign.name
         ctx.campaign_description = campaign.description
+        ctx.dm_discord_id = campaign.dm_discord_id
 
         # Get all homebrew content
         result = await db.execute(

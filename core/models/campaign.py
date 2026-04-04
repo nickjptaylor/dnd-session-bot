@@ -14,6 +14,7 @@ class Campaign(Base, UUIDPrimaryKey, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text)
     guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
     created_by_discord_id: Mapped[int] = mapped_column(BigInteger)
+    dm_discord_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     # Where to post session summaries: "channel" posts directly, "thread" creates a new thread per session
     summary_channel_id: Mapped[int | None] = mapped_column(BigInteger)

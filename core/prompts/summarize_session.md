@@ -20,8 +20,9 @@ The DM has provided the following homebrew content for this campaign. Use these 
 
 ## Characters in This Session
 {% for char in characters %}
-- **{{ char.name }}** (played by {{ char.player_name }}){% if char.race %}, {{ char.race }}{% endif %}{% if char.character_class %} {{ char.character_class }}{% endif %}{% if char.level %} (Level {{ char.level }}){% endif %}
-{% endfor %}
+{% if char.name == "DM" %}- **DM** ({{ char.player_name }}) — Dungeon Master. Their speech is narration, NPC dialogue, and world description — NOT a player character.
+{% else %}- **{{ char.name }}** (played by {{ char.player_name }}){% if char.race %}, {{ char.race }}{% endif %}{% if char.character_class %} {{ char.character_class }}{% endif %}{% if char.level %} (Level {{ char.level }}){% endif %}
+{% endif %}{% endfor %}
 {% if not characters %}
 (No character profiles registered yet — use speaker names from the transcript)
 {% endif %}

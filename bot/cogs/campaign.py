@@ -104,6 +104,30 @@ class CampaignCog(commands.Cog):
             else:
                 await ctx.followup.send("Session summaries will be posted wherever `/session stop` is used (default).")
 
+    @campaign.command(description="Set who the Dungeon Master is for this campaign")
+    async def setdm(
+        self,
+        ctx: discord.ApplicationContext,
+        dm: discord.Option(discord.Member, "The Dungeon Master for this campaign"),
+    ):
+        await ctx.defer()
+
+        async with async_session() as db:
+            result = await db.execute(
+                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
+            )
+            campaign = result.scalar_one_or_none()
+
+            if not campaign:
+                await ctx.followup.send("No campaign found. Create one first with `/campaign create`.")
+                return
+
+            campaign.dm_discord_id = dm.id
+            await db.commit()
+
+        await ctx.followup.send(f"**{dm.display_name}** is now the DM for this campaign. Their speech will be treated as narration/NPCs in transcripts, and they'll receive DM coaching notes after each session.")
+        log.info(f"DM set to {dm} (ID: {dm.id}) for campaign '{campaign.name}' in guild {ctx.guild_id}")
+
     # --- Homebrew content commands ---
 
     @homebrew.command(description="Add homebrew content to your campaign")

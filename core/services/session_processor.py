@@ -143,6 +143,13 @@ async def process_session_audio(
         campaign_description = world.campaign_description
         homebrew_text = world.format_for_prompt() if world.has_homebrew else None
         srd_rules = world.srd_rules
+        dm_discord_id = world.dm_discord_id
+
+        # Identify the DM's display name for transcript labeling
+        dm_name = None
+        if dm_discord_id and dm_discord_id in user_names:
+            dm_name = user_names[dm_discord_id]
+            log.info(f"DM identified: {dm_name} (ID: {dm_discord_id})")
 
         # Look up registered characters for participants
         char_lookup: dict[int, Character] = {}  # discord_user_id -> Character
@@ -157,8 +164,16 @@ async def process_session_audio(
                 char_lookup[char.discord_user_id] = char
 
         # Build character context — use registered character info if available
+        # The DM is marked separately so Claude treats their speech as narration/NPCs
         characters = []
         for uid, name in user_names.items():
+            if uid == dm_discord_id:
+                characters.append(CharacterContext(
+                    name="DM",
+                    player_name=name,
+                    discord_user_id=uid,
+                ))
+                continue
             char = char_lookup.get(uid)
             if char:
                 characters.append(CharacterContext(
@@ -188,12 +203,13 @@ async def process_session_audio(
             srd_rules=srd_rules,
         )
 
-        # 3b: Key moments
+        # 3b: Key moments (only for players, not the DM)
         log.info(f"Extracting key moments for session {session_id}")
+        player_characters = [c for c in characters if c.discord_user_id != dm_discord_id]
         extractor = KeyMomentExtractor(api_key=settings.anthropic_api_key)
         moments = await extractor.extract(
             transcript=transcript_text,
-            characters=characters,
+            characters=player_characters,
             homebrew_context=homebrew_text,
             srd_rules=srd_rules,
         )
@@ -394,8 +410,9 @@ async def process_session_audio(
                 except Exception:
                     log.exception(f"Failed to post art for {player_name}")
 
-            # DM coaching (send as ephemeral-style DM to the session starter)
+            # DM coaching (send to the campaign DM, or fall back to session starter)
             if coaching_notes:
+                coaching_target = dm_discord_id or started_by
                 coaching_embed = discord.Embed(
                     title="DM Coaching Notes",
                     description=coaching_notes[:4000],
@@ -404,16 +421,16 @@ async def process_session_audio(
                 coaching_embed.set_footer(text="These notes are private — only you can see this DM")
                 try:
                     guild = channel.guild
-                    dm_user = guild.get_member(started_by)
+                    dm_user = guild.get_member(coaching_target)
                     if dm_user:
                         await dm_user.send(embed=coaching_embed)
-                        log.info(f"Sent DM coaching notes to user {started_by}")
+                        log.info(f"Sent DM coaching notes to user {coaching_target}")
                     else:
-                        log.warning(f"Could not find member {started_by} for DM coaching")
+                        log.warning(f"Could not find member {coaching_target} for DM coaching")
                 except discord.Forbidden:
-                    log.warning(f"Cannot DM user {started_by} — DMs may be disabled")
+                    log.warning(f"Cannot DM user {coaching_target} — DMs may be disabled")
                 except Exception:
-                    log.exception(f"Failed to send DM coaching notes to {started_by}")
+                    log.exception(f"Failed to send DM coaching notes to {coaching_target}")
 
     except Exception:
         log.exception(f"Failed to process session (session_id={session_id})")

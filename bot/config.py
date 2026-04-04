@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # Debug — set to your Discord server ID for instant command registration
     debug_guild_ids: str = ""
 
+    # Tavern Recap (Lovable/Supabase)
+    tavern_recap_supabase_url: str = "https://kowjiumihltsgebyzgox.supabase.co"
+    bot_api_key: str = ""
+
     # S3
     s3_endpoint: str = "http://localhost:9000"
     s3_access_key: str = "minioadmin"

@@ -6,11 +6,16 @@ import discord
 from discord.ext import commands
 from sqlalchemy import select
 
+from sqlalchemy import func
+
 from bot.ui.embeds import session_started_embed, session_stopped_embed
 from bot.voice.recorder import recorder
 from core.db import async_session
 from core.models.campaign import Campaign
+from core.models.session import Session
+from core.models.user_link import UserLink
 from core.services.session_processor import get_or_create_campaign, process_session_audio
+from core.services.subscription import TIER_LIMITS, check_subscription, get_limit
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +65,49 @@ class SessionCog(commands.Cog):
         if recorder.is_recording(ctx.guild_id):
             await safe_send(ctx, "Already recording in this server! Use `/session stop` first.")
             return
+
+        # Check subscription tier and enforce limits
+        limits = TIER_LIMITS["free"]
+        tier_name = "Apprentice"
+        try:
+            async with async_session() as db:
+                result = await db.execute(
+                    select(UserLink).where(UserLink.discord_user_id == ctx.author.id)
+                )
+                link = result.scalar_one_or_none()
+
+                if link:
+                    sub = await check_subscription(link.email)
+                    limits = sub.limits
+                    tier_name = sub.tier_name
+
+                    # Update cached tier
+                    link.stripe_product_id = sub.product_id
+                    link.subscription_tier = sub.tier_name.lower().replace(" ", "_")
+                    await db.commit()
+
+                # Check sessions per month limit
+                session_limit = get_limit(limits, "sessions_per_month")
+                if session_limit is not None:
+                    # Count sessions this month for this guild
+                    first_of_month = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                    result = await db.execute(
+                        select(func.count(Session.id)).where(
+                            Session.started_by_discord_id == ctx.author.id,
+                            Session.created_at >= first_of_month,
+                        )
+                    )
+                    sessions_this_month = result.scalar() or 0
+
+                    if sessions_this_month >= session_limit:
+                        await safe_send(
+                            ctx,
+                            f"You've used all **{session_limit}** sessions this month on the **{tier_name}** tier. "
+                            f"Upgrade at tavernrecap.com for more sessions!"
+                        )
+                        return
+        except Exception:
+            log.exception("Failed to check subscription — allowing session")
 
         try:
             await recorder.start_recording(voice_channel)
@@ -188,6 +236,19 @@ class SessionCog(commands.Cog):
         except Exception:
             log.warning("Failed to load campaign settings — using default channel")
 
+        # Look up tier limits for the user who started the session
+        tier_limits = TIER_LIMITS["free"]
+        try:
+            async with async_session() as db:
+                result = await db.execute(
+                    select(UserLink).where(UserLink.discord_user_id == started_by)
+                )
+                link = result.scalar_one_or_none()
+                if link and link.stripe_product_id and link.stripe_product_id in TIER_LIMITS:
+                    tier_limits = TIER_LIMITS[link.stripe_product_id]
+        except Exception:
+            log.warning("Failed to look up tier — using free limits")
+
         asyncio.create_task(
             process_session_audio(
                 guild_id=guild.id,
@@ -199,6 +260,7 @@ class SessionCog(commands.Cog):
                 user_names=user_names,
                 channel=output_channel,
                 create_thread=create_thread,
+                tier_limits=tier_limits,
             )
         )
         log.info(f"Background transcription task launched for guild {guild.id}")

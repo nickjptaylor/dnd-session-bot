@@ -31,13 +31,17 @@ async def process_session_audio(
     user_names: dict[int, str],
     channel: discord.TextChannel | None = None,
     create_thread: bool = False,
+    tier_limits: dict | None = None,
 ) -> None:
     """Background task: transcribe, summarize, extract key moments, and coach.
 
     Called as an asyncio task after /session stop so the user gets an
     immediate response while processing runs in the background.
     If create_thread is True, a new thread is created in the channel for output.
+    tier_limits controls what features are available (portraits, DM coaching).
     """
+    if tier_limits is None:
+        tier_limits = {"portraits_per_session": 0, "dm_tips": False, "name": "Apprentice"}
     session_id = None
 
     try:
@@ -192,14 +196,18 @@ async def process_session_audio(
             characters=characters,
         )
 
-        # 3c: DM coaching
-        log.info(f"Generating DM coaching notes for session {session_id}")
-        coach = DMCoach(api_key=settings.anthropic_api_key)
-        coaching_notes = await coach.coach(
-            transcript=transcript_text,
-            summary=narrative,
-            campaign_name=campaign_name,
-        )
+        # 3c: DM coaching (tier-gated)
+        coaching_notes = None
+        if tier_limits.get("dm_tips", False):
+            log.info(f"Generating DM coaching notes for session {session_id}")
+            coach = DMCoach(api_key=settings.anthropic_api_key)
+            coaching_notes = await coach.coach(
+                transcript=transcript_text,
+                summary=narrative,
+                campaign_name=campaign_name,
+            )
+        else:
+            log.info(f"DM coaching skipped — not included in {tier_limits.get('name', 'free')} tier")
 
         # --- Stage 4: Save everything to DB ---
         async with async_session() as db:
@@ -238,13 +246,20 @@ async def process_session_audio(
         # --- Stage 5: Generate art for key moments (if Flux API key is set) ---
         generated_images: list[tuple[str, bytes]] = []  # (player_name, image_bytes)
 
-        if settings.flux_api_key and moments:
-            log.info(f"Generating art for {len(moments)} key moment(s)")
+        # Determine portrait limit from tier
+        portrait_limit = tier_limits.get("portraits_per_session", 0)
+        is_guild_master = tier_limits.get("name") == "Guild Master"
+        if is_guild_master:
+            portrait_limit = len(moments)  # unlimited
+
+        if settings.flux_api_key and moments and portrait_limit > 0:
+            moments_to_generate = moments[:portrait_limit]
+            log.info(f"Generating art for {len(moments_to_generate)} key moment(s) (limit: {portrait_limit})")
 
             scene_gen = ScenePromptGenerator(api_key=settings.anthropic_api_key)
             flux = FluxImageGenerator(api_key=settings.flux_api_key)
 
-            for moment in moments:
+            for moment in moments_to_generate:
                 try:
                     # Find character info for this moment
                     char = None
@@ -306,6 +321,8 @@ async def process_session_audio(
                     log.exception(f"Failed to generate art for {moment.player_name}")
         elif not settings.flux_api_key:
             log.info("No FLUX_API_KEY set — skipping image generation")
+        elif portrait_limit == 0:
+            log.info(f"Portraits not included in {tier_limits.get('name', 'free')} tier — skipping image generation")
 
         log.info(f"Session {session_id} fully processed")
 

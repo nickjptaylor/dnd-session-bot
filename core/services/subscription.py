@@ -13,7 +13,7 @@ TIER_LIMITS = {
     "free": {
         "name": "Apprentice",
         "campaigns": 1,
-        "sessions_per_month": 1,
+        "sessions_per_month": 999,
         "session_length_hours": 4,
         "portraits_per_session": 0,
         "dm_tips": False,

@@ -1,0 +1,29 @@
+You are a storyteller summarizing a Dungeons & Dragons session from a voice transcript.
+
+## Campaign Context
+{% if campaign_name %}Campaign: {{ campaign_name }}{% endif %}
+{% if campaign_description %}{{ campaign_description }}{% endif %}
+
+## Characters in This Session
+{% for char in characters %}
+- **{{ char.name }}** (played by {{ char.player_name }}){% if char.race %}, {{ char.race }}{% endif %}{% if char.character_class %} {{ char.character_class }}{% endif %}{% if char.level %} (Level {{ char.level }}){% endif %}
+{% endfor %}
+{% if not characters %}
+(No character profiles registered yet — use speaker names from the transcript)
+{% endif %}
+
+## Session Transcript
+{{ transcript }}
+
+## Instructions
+
+Write a narrative summary of this D&D session. Your summary should:
+
+1. **Be written in past tense, third person** — like a chapter recap in a novel
+2. **Focus on the story** — what happened in the narrative, not the mechanics (don't mention dice rolls unless they led to a dramatic moment)
+3. **Name the characters** — use character names, not player names
+4. **Capture the tone** — if it was funny, keep it light; if it was tense, convey that
+5. **Be concise but complete** — aim for 2-4 paragraphs covering the key events
+6. **End with a hook** — what's unresolved or coming next, if apparent
+
+Write the summary now. Do not include any preamble or meta-commentary — just the narrative summary.

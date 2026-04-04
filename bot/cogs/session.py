@@ -1,11 +1,15 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands
+from sqlalchemy import select
 
 from bot.ui.embeds import session_started_embed, session_stopped_embed
 from bot.voice.recorder import recorder
+from core.db import async_session
+from core.models.campaign import Campaign
 from core.services.session_processor import get_or_create_campaign, process_session_audio
 
 log = logging.getLogger(__name__)
@@ -13,6 +17,10 @@ log = logging.getLogger(__name__)
 
 async def safe_defer(ctx: discord.ApplicationContext) -> bool:
     """Defer the interaction, returning False if it already expired."""
+    age = (datetime.now(timezone.utc) - ctx.interaction.created_at).total_seconds()
+    if age > 2.5:
+        log.warning(f"Dropping stale interaction for /{ctx.command.qualified_name} (age={age:.1f}s)")
+        return False
     try:
         await ctx.defer()
         return True
@@ -26,7 +34,6 @@ async def safe_send(ctx: discord.ApplicationContext, *args, **kwargs):
     try:
         await ctx.followup.send(*args, **kwargs)
     except discord.NotFound:
-        # Interaction expired — send as a regular channel message instead
         kwargs.pop("ephemeral", None)
         await ctx.channel.send(*args, **kwargs)
 
@@ -72,7 +79,6 @@ class SessionCog(commands.Cog):
     @session.command(description="Stop the current recording session")
     async def stop(self, ctx: discord.ApplicationContext):
         if not await safe_defer(ctx):
-            # Still stop the recording even if interaction expired
             if recorder.is_recording(ctx.guild_id):
                 await self._stop_and_process(ctx.guild_id, ctx.author.id, ctx.guild, ctx.channel)
             return
@@ -100,7 +106,6 @@ class SessionCog(commands.Cog):
         )
         await safe_send(ctx, embed=embed)
 
-        # Fire background transcription
         await self._launch_processing(
             guild=ctx.guild,
             voice_channel_id=voice_channel_id,
@@ -147,10 +152,14 @@ class SessionCog(commands.Cog):
         channel: discord.TextChannel,
     ):
         """Resolve campaign + user names, then fire background transcription task."""
-        # Build user_names mapping
+        # Build user_names mapping, filtering out bots (music bots, etc.)
         user_names = {}
-        for user_id in audio_data:
+        for user_id in list(audio_data.keys()):
             member = guild.get_member(user_id)
+            if member and member.bot:
+                audio_data.pop(user_id)
+                log.info(f"Filtered out bot: {member.display_name} ({user_id})")
+                continue
             user_names[user_id] = member.display_name if member else f"User-{user_id}"
 
         # Get or create campaign for this guild
@@ -161,6 +170,24 @@ class SessionCog(commands.Cog):
             await channel.send("Could not connect to the database. Transcription skipped.")
             return
 
+        # Resolve output destination from campaign settings
+        output_channel = channel
+        create_thread = False
+        try:
+            async with async_session() as db:
+                result = await db.execute(
+                    select(Campaign).where(Campaign.id == campaign_id)
+                )
+                campaign = result.scalar_one_or_none()
+                if campaign and campaign.summary_channel_id:
+                    resolved = guild.get_channel(campaign.summary_channel_id)
+                    if resolved:
+                        output_channel = resolved
+                if campaign and campaign.summary_mode == "thread":
+                    create_thread = True
+        except Exception:
+            log.warning("Failed to load campaign settings — using default channel")
+
         asyncio.create_task(
             process_session_audio(
                 guild_id=guild.id,
@@ -170,7 +197,8 @@ class SessionCog(commands.Cog):
                 duration_seconds=duration,
                 audio_data=audio_data,
                 user_names=user_names,
-                channel=channel,
+                channel=output_channel,
+                create_thread=create_thread,
             )
         )
         log.info(f"Background transcription task launched for guild {guild.id}")

@@ -90,6 +90,7 @@ class VoiceRecorder:
                     wf.writeframes(pcm_data)
                 wav_buf.seek(0)
                 audio_data[user_id] = wav_buf
+                log.info(f"WAV buffer for user {user_id}: {len(pcm_data)} PCM bytes → {wav_buf.getbuffer().nbytes} WAV bytes")
 
             try:
                 vc.stop_recording()

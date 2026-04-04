@@ -11,7 +11,10 @@ log = logging.getLogger("dnd-bot")
 logging.getLogger("discord.voice.receive.reader").setLevel(logging.WARNING)
 logging.getLogger("discord.voice.receive.router").setLevel(logging.WARNING)
 
-bot = discord.Bot(intents=discord.Intents.default() | discord.Intents.voice_states)
+bot = discord.Bot(
+    intents=discord.Intents.default() | discord.Intents.voice_states,
+    debug_guilds=[1203373115778924554],
+)
 
 
 @bot.event
@@ -20,7 +23,7 @@ async def on_ready():
     log.info(f"Connected to {len(bot.guilds)} guild(s)")
     for guild in bot.guilds:
         log.info(f"  Guild: {guild.name} (ID: {guild.id})")
-    await bot.sync_commands()
+    await bot.sync_commands(force=True)
     log.info("Commands synced")
 
 

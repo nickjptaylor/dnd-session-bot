@@ -67,6 +67,40 @@ class CampaignCog(commands.Cog):
 
         await ctx.followup.send(embed=embed)
 
+    @campaign.command(description="Set where session summaries are posted for this campaign")
+    async def setchannel(
+        self,
+        ctx: discord.ApplicationContext,
+        channel: discord.TextChannel = None,
+        mode: discord.Option(str, "Post as messages or create a thread per session", choices=["channel", "thread"], default="channel") = "channel",
+    ):
+        await ctx.defer()
+
+        async with async_session() as db:
+            result = await db.execute(
+                select(Campaign).where(Campaign.guild_id == ctx.guild_id).limit(1)
+            )
+            campaign = result.scalar_one_or_none()
+
+            if not campaign:
+                await ctx.followup.send("No campaign found. Create one first with `/campaign create`.")
+                return
+
+            campaign.summary_channel_id = channel.id if channel else None
+            campaign.summary_mode = mode
+            await db.commit()
+
+        if mode == "thread":
+            if channel:
+                await ctx.followup.send(f"Each session will create a **new thread** in {channel.mention}.")
+            else:
+                await ctx.followup.send("Each session will create a **new thread** wherever `/session stop` is used.")
+        else:
+            if channel:
+                await ctx.followup.send(f"Session summaries will be posted in {channel.mention}.")
+            else:
+                await ctx.followup.send("Session summaries will be posted wherever `/session stop` is used (default).")
+
 
 def setup(bot: discord.Bot):
     bot.add_cog(CampaignCog(bot))

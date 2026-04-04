@@ -15,6 +15,10 @@ class Campaign(Base, UUIDPrimaryKey, TimestampMixin):
     guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
     created_by_discord_id: Mapped[int] = mapped_column(BigInteger)
 
+    # Where to post session summaries: "channel" posts directly, "thread" creates a new thread per session
+    summary_channel_id: Mapped[int | None] = mapped_column(BigInteger)
+    summary_mode: Mapped[str] = mapped_column(String(20), default="channel")  # "channel" or "thread"
+
     sourcebooks: Mapped[list["Sourcebook"]] = relationship(back_populates="campaign")
     homebrew_contents: Mapped[list["HomebrewContent"]] = relationship(back_populates="campaign")
     characters: Mapped[list["Character"]] = relationship(back_populates="campaign")  # noqa: F821

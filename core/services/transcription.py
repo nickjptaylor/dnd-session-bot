@@ -72,8 +72,13 @@ class DeepgramBatchTranscriber:
                 alternatives = channels[0].get("alternatives", [])
                 if alternatives:
                     words = alternatives[0].get("words", [])
+                    transcript_text = alternatives[0].get("transcript", "")
+                    log.info(f"Deepgram transcript for user {user_id}: '{transcript_text}' ({len(words)} words, {len(audio_bytes)} audio bytes)")
+                else:
+                    log.warning(f"Deepgram returned no alternatives for user {user_id}")
+            else:
+                log.warning(f"Deepgram returned no channels for user {user_id}. Full response: {result}")
 
-            log.info(f"Transcribed {len(words)} words for user {user_id}")
             return user_id, words
 
         tasks = [_transcribe_one(uid, buf) for uid, buf in user_audio.items()]

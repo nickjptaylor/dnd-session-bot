@@ -9,9 +9,11 @@ from sqlalchemy import select
 from bot.config import settings
 from core.db import async_session
 from core.models.campaign import Campaign
+from core.models.character import Character
 from core.models.session import Session, SessionRecording, Transcript
-from core.models.summary import KeyMoment, SessionSummary
+from core.models.summary import GeneratedArt, KeyMoment, SessionSummary
 from core.services.dm_coach import DMCoach
+from core.services.image_gen import FluxImageGenerator, ScenePromptGenerator
 from core.services.key_moments import KeyMomentExtractor
 from core.services.summarizer import CharacterContext, SessionSummarizer
 from core.services.transcription import DeepgramBatchTranscriber
@@ -140,15 +142,37 @@ async def process_session_audio(
                 campaign_name = campaign.name
                 campaign_description = campaign.description
 
-        # Build character context from user_names (full Character records come in later phases)
-        characters = [
-            CharacterContext(
-                name=name,
-                player_name=name,
-                discord_user_id=uid,
+        # Look up registered characters for participants
+        char_lookup: dict[int, Character] = {}  # discord_user_id -> Character
+        async with async_session() as db:
+            result = await db.execute(
+                select(Character).where(
+                    Character.campaign_id == campaign_id,
+                    Character.discord_user_id.in_(list(user_names.keys())),
+                )
             )
-            for uid, name in user_names.items()
-        ]
+            for char in result.scalars().all():
+                char_lookup[char.discord_user_id] = char
+
+        # Build character context — use registered character info if available
+        characters = []
+        for uid, name in user_names.items():
+            char = char_lookup.get(uid)
+            if char:
+                characters.append(CharacterContext(
+                    name=char.name,
+                    player_name=name,
+                    discord_user_id=uid,
+                    race=char.race,
+                    character_class=char.character_class,
+                    level=char.level,
+                ))
+            else:
+                characters.append(CharacterContext(
+                    name=name,
+                    player_name=name,
+                    discord_user_id=uid,
+                ))
 
         # 3a: Narrative summary
         log.info(f"Generating narrative summary for session {session_id}")
@@ -211,9 +235,81 @@ async def process_session_audio(
 
             await db.commit()
 
+        # --- Stage 5: Generate art for key moments (if Flux API key is set) ---
+        generated_images: list[tuple[str, bytes]] = []  # (player_name, image_bytes)
+
+        if settings.flux_api_key and moments:
+            log.info(f"Generating art for {len(moments)} key moment(s)")
+
+            scene_gen = ScenePromptGenerator(api_key=settings.anthropic_api_key)
+            flux = FluxImageGenerator(api_key=settings.flux_api_key)
+
+            for moment in moments:
+                try:
+                    # Find character info for this moment
+                    char = None
+                    discord_uid = moment.discord_user_id
+                    if not discord_uid:
+                        for uid, name in user_names.items():
+                            if name.lower() == moment.player_name.lower():
+                                discord_uid = uid
+                                break
+                    if discord_uid:
+                        char = char_lookup.get(discord_uid)
+
+                    # Generate a detailed image prompt via Claude
+                    image_prompt = await scene_gen.generate_prompt(
+                        scene_description=moment.scene_prompt,
+                        character_name=char.name if char else moment.player_name,
+                        character_race=char.race if char else None,
+                        character_class=char.character_class if char else None,
+                        character_description=char.description if char else None,
+                    )
+
+                    # Generate image via Flux
+                    image_bytes = await flux.generate_image(prompt=image_prompt)
+
+                    # Upload to S3
+                    try:
+                        from core.services.storage import get_storage
+                        storage = get_storage()
+                        art_s3_key = f"art/{session_id}/{moment.player_name.replace(' ', '_')}.jpg"
+                        storage.upload(art_s3_key, image_bytes, content_type="image/jpeg")
+                    except Exception:
+                        log.warning("Failed to upload art to S3 — continuing without storage")
+                        art_s3_key = ""
+
+                    # Save GeneratedArt to DB
+                    async with async_session() as db:
+                        # Find the KeyMoment row for this moment
+                        result = await db.execute(
+                            select(KeyMoment).where(
+                                KeyMoment.summary_id == summary.id,
+                                KeyMoment.description == moment.description,
+                            )
+                        )
+                        km = result.scalar_one_or_none()
+                        if km:
+                            art = GeneratedArt(
+                                key_moment_id=km.id,
+                                s3_key=art_s3_key,
+                                provider="flux",
+                                prompt_used=image_prompt,
+                            )
+                            db.add(art)
+                            await db.commit()
+
+                    generated_images.append((moment.player_name, image_bytes))
+                    log.info(f"Generated art for {moment.player_name}")
+
+                except Exception:
+                    log.exception(f"Failed to generate art for {moment.player_name}")
+        elif not settings.flux_api_key:
+            log.info("No FLUX_API_KEY set — skipping image generation")
+
         log.info(f"Session {session_id} fully processed")
 
-        # --- Stage 5: Post results to Discord ---
+        # --- Stage 6: Post results to Discord ---
         if channel:
             # Summary embed
             summary_embed = discord.Embed(
@@ -239,6 +335,19 @@ async def process_session_audio(
                         inline=False,
                     )
                 await channel.send(embed=moments_embed)
+
+            # Generated art
+            for player_name, image_bytes in generated_images:
+                try:
+                    file = discord.File(io.BytesIO(image_bytes), filename=f"{player_name}_moment.jpg")
+                    art_embed = discord.Embed(
+                        title=f"{player_name}'s Key Moment",
+                        color=discord.Color.dark_purple(),
+                    )
+                    art_embed.set_image(url=f"attachment://{player_name}_moment.jpg")
+                    await channel.send(embed=art_embed, file=file)
+                except Exception:
+                    log.exception(f"Failed to post art for {player_name}")
 
             # DM coaching (send as ephemeral-style DM to the session starter)
             if coaching_notes:

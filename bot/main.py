@@ -23,7 +23,7 @@ async def on_ready():
     log.info(f"Connected to {len(bot.guilds)} guild(s)")
     for guild in bot.guilds:
         log.info(f"  Guild: {guild.name} (ID: {guild.id})")
-    await bot.sync_commands(force=True)
+    await bot.sync_commands()
     log.info("Commands synced")
 
 

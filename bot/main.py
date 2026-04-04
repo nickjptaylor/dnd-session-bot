@@ -34,6 +34,17 @@ async def on_ready():
         log.info(f"  Guild: {guild.name} (ID: {guild.id})")
     await bot.sync_commands()
     log.info("Commands synced")
+    # Debug: list all registered commands
+    for cmd in bot.pending_application_commands:
+        if hasattr(cmd, 'subcommands'):
+            for sub in cmd.subcommands:
+                if hasattr(sub, 'subcommands'):
+                    for subsub in sub.subcommands:
+                        log.info(f"  Registered: /{cmd.name} {sub.name} {subsub.name}")
+                else:
+                    log.info(f"  Registered: /{cmd.name} {sub.name}")
+        else:
+            log.info(f"  Registered: /{cmd.name}")
 
 
 def run():

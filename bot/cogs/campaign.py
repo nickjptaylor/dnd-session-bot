@@ -108,7 +108,7 @@ class CampaignCog(commands.Cog):
     async def setdm(
         self,
         ctx: discord.ApplicationContext,
-        dm: discord.Option(discord.Member, "The Dungeon Master for this campaign"),
+        dm: discord.Option(discord.User, "The Dungeon Master for this campaign"),
     ):
         await ctx.defer()
 

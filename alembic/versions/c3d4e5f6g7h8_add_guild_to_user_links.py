@@ -22,18 +22,20 @@ def upgrade() -> None:
     # Add guild_id column (default 0 for existing rows)
     op.add_column('user_links', sa.Column('guild_id', sa.BigInteger(), nullable=False, server_default='0'))
 
-    # Drop old unique constraint on discord_user_id alone
-    op.drop_constraint('user_links_discord_user_id_key', 'user_links', type_='unique')
+    # Drop old unique index on discord_user_id alone (it was an index, not a constraint)
+    op.drop_index('ix_user_links_discord_user_id', 'user_links')
 
     # Add new composite unique constraint (user + guild)
     op.create_unique_constraint('uq_user_guild', 'user_links', ['discord_user_id', 'guild_id'])
 
-    # Add index on guild_id for per-server subscription lookups
+    # Add indexes for lookups
+    op.create_index('ix_user_links_discord_user_id', 'user_links', ['discord_user_id'])
     op.create_index('ix_user_links_guild_id', 'user_links', ['guild_id'])
 
 
 def downgrade() -> None:
     op.drop_index('ix_user_links_guild_id', 'user_links')
+    op.drop_index('ix_user_links_discord_user_id', 'user_links')
     op.drop_constraint('uq_user_guild', 'user_links', type_='unique')
-    op.create_unique_constraint('user_links_discord_user_id_key', 'user_links', ['discord_user_id'])
+    op.create_index('ix_user_links_discord_user_id', 'user_links', ['discord_user_id'], unique=True)
     op.drop_column('user_links', 'guild_id')

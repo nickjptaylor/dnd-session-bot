@@ -22,6 +22,7 @@ app.add_middleware(
     allow_origins=[
         "https://tavernrecap.com",
         "https://www.tavernrecap.com",
+        "https://api.tavernrecap.com",
         "https://kowjiumihltsgebyzgox.supabase.co",
         "http://localhost:5173",  # Local Vite dev
     ],

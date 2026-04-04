@@ -7,6 +7,13 @@ You are analyzing a Dungeons & Dragons session transcript to identify the most m
 {% if not characters %}
 (No character profiles registered — use speaker names from the transcript as both character and player names)
 {% endif %}
+{% if homebrew_context %}
+
+## Campaign World
+Use these homebrew details to make scene_prompt descriptions more accurate — reference actual locations, NPC appearances, and items from the campaign world.
+
+{{ homebrew_context }}
+{% endif %}
 
 ## Session Transcript
 {{ transcript }}

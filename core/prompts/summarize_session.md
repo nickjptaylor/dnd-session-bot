@@ -3,6 +3,13 @@ You are a storyteller summarizing a Dungeons & Dragons session from a voice tran
 ## Campaign Context
 {% if campaign_name %}Campaign: {{ campaign_name }}{% endif %}
 {% if campaign_description %}{{ campaign_description }}{% endif %}
+{% if homebrew_context %}
+
+## Campaign World
+The DM has provided the following homebrew content for this campaign. Use these details to enrich the summary — reference NPCs by name, describe locations accurately, and respect homebrew rules and lore.
+
+{{ homebrew_context }}
+{% endif %}
 
 ## Characters in This Session
 {% for char in characters %}

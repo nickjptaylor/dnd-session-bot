@@ -7,6 +7,13 @@ You are creating an image generation prompt for a key moment from a Dungeons & D
 {{ character_name }}{% if character_race %}, a {{ character_race }}{% endif %}{% if character_class %} {{ character_class }}{% endif %}
 {% endif %}
 
+{% if homebrew_context %}
+## Campaign World Details
+Use these details to accurately depict locations, items, and NPC appearances in the scene.
+
+{{ homebrew_context }}
+{% endif %}
+
 ## Scene from the Session
 {{ scene_description }}
 

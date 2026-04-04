@@ -22,6 +22,7 @@ class DMCoach:
         transcript: str,
         summary: str,
         campaign_name: str | None = None,
+        homebrew_context: str | None = None,
     ) -> str:
         """Generate DM coaching notes based on the session.
 
@@ -31,6 +32,7 @@ class DMCoach:
             transcript=transcript,
             summary=summary,
             campaign_name=campaign_name,
+            homebrew_context=homebrew_context,
         )
 
         log.info("Requesting DM coaching notes")

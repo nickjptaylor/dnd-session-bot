@@ -33,6 +33,7 @@ class KeyMomentExtractor:
         self,
         transcript: str,
         characters: list | None = None,
+        homebrew_context: str | None = None,
     ) -> list[ExtractedMoment]:
         """Extract key moments from a session transcript.
 
@@ -41,6 +42,7 @@ class KeyMomentExtractor:
         prompt = self._template.render(
             transcript=transcript,
             characters=characters or [],
+            homebrew_context=homebrew_context,
         )
 
         log.info(f"Requesting key moment extraction ({len(transcript)} chars of transcript)")

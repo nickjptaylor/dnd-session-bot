@@ -120,6 +120,7 @@ class ScenePromptGenerator:
         character_class: str | None = None,
         character_description: str | None = None,
         has_reference_image: bool = False,
+        homebrew_context: str | None = None,
     ) -> str:
         """Generate a detailed image prompt from a scene description and character info."""
         prompt = self._template.render(
@@ -129,6 +130,7 @@ class ScenePromptGenerator:
             character_class=character_class,
             character_description=character_description,
             has_reference_image=has_reference_image,
+            homebrew_context=homebrew_context,
         )
 
         message = await self.client.messages.create(

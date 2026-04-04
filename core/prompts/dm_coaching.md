@@ -2,6 +2,13 @@ You are an experienced Dungeon Master coach reviewing a D&D session transcript t
 
 ## Campaign Context
 {% if campaign_name %}Campaign: {{ campaign_name }}{% endif %}
+{% if homebrew_context %}
+
+## Campaign World
+The DM has set up the following homebrew content. Use this to give more specific, contextual coaching — e.g. suggest ways to better use established NPCs, tie in locations, or leverage homebrew lore for future sessions.
+
+{{ homebrew_context }}
+{% endif %}
 
 ## Session Transcript
 {{ transcript }}

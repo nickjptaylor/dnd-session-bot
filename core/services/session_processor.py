@@ -12,6 +12,7 @@ from core.models.campaign import Campaign
 from core.models.character import Character, CharacterReference
 from core.models.session import Session, SessionRecording, Transcript
 from core.models.summary import GeneratedArt, KeyMoment, SessionSummary
+from core.services.campaign_context import build_campaign_context
 from core.services.dm_coach import DMCoach
 from core.services.image_gen import FluxImageGenerator, ScenePromptGenerator
 from core.services.key_moments import KeyMomentExtractor
@@ -136,15 +137,11 @@ async def process_session_audio(
                 await db.commit()
             return
 
-        # Look up campaign info for context
-        campaign_name = None
-        campaign_description = None
-        async with async_session() as db:
-            result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
-            campaign = result.scalar_one_or_none()
-            if campaign:
-                campaign_name = campaign.name
-                campaign_description = campaign.description
+        # Load campaign info + homebrew content for context
+        world = await build_campaign_context(campaign_id)
+        campaign_name = world.campaign_name
+        campaign_description = world.campaign_description
+        homebrew_text = world.format_for_prompt() if world.has_homebrew else None
 
         # Look up registered characters for participants
         char_lookup: dict[int, Character] = {}  # discord_user_id -> Character
@@ -186,6 +183,7 @@ async def process_session_audio(
             characters=characters,
             campaign_name=campaign_name,
             campaign_description=campaign_description,
+            homebrew_context=homebrew_text,
         )
 
         # 3b: Key moments
@@ -194,6 +192,7 @@ async def process_session_audio(
         moments = await extractor.extract(
             transcript=transcript_text,
             characters=characters,
+            homebrew_context=homebrew_text,
         )
 
         # 3c: DM coaching (tier-gated)
@@ -205,6 +204,7 @@ async def process_session_audio(
                 transcript=transcript_text,
                 summary=narrative,
                 campaign_name=campaign_name,
+                homebrew_context=homebrew_text,
             )
         else:
             log.info(f"DM coaching skipped — not included in {tier_limits.get('name', 'free')} tier")
@@ -299,6 +299,7 @@ async def process_session_audio(
                         character_class=char.character_class if char else None,
                         character_description=char.description if char else None,
                         has_reference_image=reference_image is not None,
+                        homebrew_context=homebrew_text,
                     )
 
                     # Generate image via Flux Kontext (with reference for consistency)

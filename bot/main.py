@@ -32,16 +32,6 @@ async def on_ready():
     log.info(f"Connected to {len(bot.guilds)} guild(s)")
     for guild in bot.guilds:
         log.info(f"  Guild: {guild.name} (ID: {guild.id})")
-    # Debug: list all commands BEFORE sync
-    log.info(f"Pending commands before sync: {len(bot.pending_application_commands)}")
-    for cmd in bot.pending_application_commands:
-        log.info(f"  Pre-sync command: {cmd.name} (type={type(cmd).__name__})")
-        if hasattr(cmd, 'subcommands') and cmd.subcommands:
-            for sub in cmd.subcommands:
-                log.info(f"    Sub: {sub.name} (type={type(sub).__name__})")
-                if hasattr(sub, 'subcommands') and sub.subcommands:
-                    for subsub in sub.subcommands:
-                        log.info(f"      SubSub: {subsub.name}")
     await bot.sync_commands()
     log.info("Commands synced")
 

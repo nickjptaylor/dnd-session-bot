@@ -9,7 +9,7 @@ from sqlalchemy import select
 from bot.config import settings
 from core.db import async_session
 from core.models.campaign import Campaign
-from core.models.character import Character
+from core.models.character import Character, CharacterReference
 from core.models.session import Session, SessionRecording, Transcript
 from core.models.summary import GeneratedArt, KeyMoment, SessionSummary
 from core.services.dm_coach import DMCoach
@@ -272,6 +272,25 @@ async def process_session_audio(
                     if discord_uid:
                         char = char_lookup.get(discord_uid)
 
+                    # Fetch character reference image from S3 (if available)
+                    reference_image = None
+                    if char:
+                        try:
+                            async with async_session() as db:
+                                result = await db.execute(
+                                    select(CharacterReference).where(
+                                        CharacterReference.character_id == char.id
+                                    ).order_by(CharacterReference.created_at.desc()).limit(1)
+                                )
+                                ref = result.scalar_one_or_none()
+                                if ref:
+                                    from core.services.storage import get_storage
+                                    storage = get_storage()
+                                    reference_image = storage.download(ref.s3_key)
+                                    log.info(f"Loaded reference image for {char.name} ({len(reference_image)} bytes)")
+                        except Exception:
+                            log.warning(f"Failed to load reference image for {char.name if char else 'unknown'}")
+
                     # Generate a detailed image prompt via Claude
                     image_prompt = await scene_gen.generate_prompt(
                         scene_description=moment.scene_prompt,
@@ -279,10 +298,14 @@ async def process_session_audio(
                         character_race=char.race if char else None,
                         character_class=char.character_class if char else None,
                         character_description=char.description if char else None,
+                        has_reference_image=reference_image is not None,
                     )
 
-                    # Generate image via Flux
-                    image_bytes = await flux.generate_image(prompt=image_prompt)
+                    # Generate image via Flux Kontext (with reference for consistency)
+                    image_bytes = await flux.generate_image(
+                        prompt=image_prompt,
+                        reference_image=reference_image,
+                    )
 
                     # Upload to S3
                     try:

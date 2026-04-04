@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 from pathlib import Path
 
@@ -12,9 +13,9 @@ SCENE_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "image_scene_desc
 
 
 class FluxImageGenerator:
-    """Generates fantasy art for key moments using BFL's Flux 1.1 Pro API."""
+    """Generates fantasy art using BFL's Flux Kontext Pro API with character reference support."""
 
-    BFL_API_URL = "https://api.bfl.ai/v1/flux-pro-1.1"
+    BFL_API_URL = "https://api.bfl.ai/v1/flux-kontext-pro"
     BFL_RESULT_URL = "https://api.bfl.ai/v1/get_result"
 
     def __init__(self, api_key: str):
@@ -23,13 +24,14 @@ class FluxImageGenerator:
     async def generate_image(
         self,
         prompt: str,
+        reference_image: bytes | None = None,
         width: int = 1024,
         height: int = 1024,
     ) -> bytes:
-        """Generate an image from a prompt and return the image bytes.
+        """Generate an image from a prompt and optional reference image.
 
-        Uses BFL's async polling pattern:
-        1. Submit generation request
+        Uses BFL's Flux Kontext Pro with async polling:
+        1. Submit generation request (with reference image if provided)
         2. Poll for result
         3. Download image from result URL
         """
@@ -39,10 +41,16 @@ class FluxImageGenerator:
         }
         payload = {
             "prompt": prompt,
-            "width": width,
-            "height": height,
+            "aspect_ratio": "1:1",
             "safety_tolerance": 2,
+            "output_format": "jpeg",
         }
+
+        # Pass reference image as base64 for character consistency
+        if reference_image:
+            b64_image = base64.b64encode(reference_image).decode("utf-8")
+            payload["input_image"] = b64_image
+            log.info(f"Including reference image ({len(reference_image)} bytes) for character consistency")
 
         async with httpx.AsyncClient(timeout=180) as client:
             # Submit the request
@@ -55,7 +63,7 @@ class FluxImageGenerator:
             result = resp.json()
             task_id = result["id"]
             polling_url = result.get("polling_url", f"{self.BFL_RESULT_URL}?id={task_id}")
-            log.info(f"Flux generation submitted (task_id={task_id})")
+            log.info(f"Flux Kontext generation submitted (task_id={task_id})")
 
             # Poll for result
             image_url = await self._poll_for_result(client, polling_url, headers)
@@ -111,6 +119,7 @@ class ScenePromptGenerator:
         character_race: str | None = None,
         character_class: str | None = None,
         character_description: str | None = None,
+        has_reference_image: bool = False,
     ) -> str:
         """Generate a detailed image prompt from a scene description and character info."""
         prompt = self._template.render(
@@ -119,6 +128,7 @@ class ScenePromptGenerator:
             character_race=character_race,
             character_class=character_class,
             character_description=character_description,
+            has_reference_image=has_reference_image,
         )
 
         message = await self.client.messages.create(

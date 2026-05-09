@@ -263,6 +263,58 @@ async def process_session_audio(
 
             await db.commit()
 
+        # --- Stage 4b: Extract story threads (non-critical) ---
+        try:
+            from core.models.dm_prep import StoryThread
+            from core.services.dm_prep import ThreadExtractor
+
+            async with async_session() as db:
+                result = await db.execute(
+                    select(StoryThread).where(
+                        StoryThread.campaign_id == campaign_id,
+                        StoryThread.status == "active",
+                    )
+                )
+                existing = result.scalars().all()
+
+            existing_threads = [
+                {"id": str(t.id), "title": t.title, "description": t.description}
+                for t in existing
+            ]
+
+            thread_extractor = ThreadExtractor(api_key=settings.anthropic_api_key)
+            extracted = await thread_extractor.extract(
+                summary=narrative,
+                existing_threads=existing_threads,
+                campaign_name=campaign_name,
+                homebrew_context=homebrew_text,
+            )
+
+            async with async_session() as db:
+                for thread in extracted:
+                    if thread.is_new:
+                        db.add(StoryThread(
+                            campaign_id=campaign_id,
+                            source_session_id=session_id,
+                            title=thread.title,
+                            description=thread.description,
+                            thread_type=thread.thread_type,
+                            status="active",
+                        ))
+                    elif thread.existing_thread_id and thread.resolved:
+                        result = await db.execute(
+                            select(StoryThread).where(StoryThread.id == thread.existing_thread_id)
+                        )
+                        existing_thread = result.scalar_one_or_none()
+                        if existing_thread:
+                            existing_thread.status = "resolved"
+                            existing_thread.resolved_session_id = session_id
+                await db.commit()
+
+            log.info(f"Extracted {len(extracted)} story thread(s) from session {session_id}")
+        except Exception:
+            log.exception("Failed to extract story threads (non-fatal)")
+
         # --- Stage 5: Generate art for key moments (if Flux API key is set) ---
         generated_images: list[tuple[str, bytes]] = []  # (player_name, image_bytes)
 

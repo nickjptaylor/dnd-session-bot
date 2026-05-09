@@ -25,6 +25,7 @@ class Campaign(Base, UUIDPrimaryKey, TimestampMixin):
     homebrew_contents: Mapped[list["HomebrewContent"]] = relationship(back_populates="campaign")
     characters: Mapped[list["Character"]] = relationship(back_populates="campaign")  # noqa: F821
     sessions: Mapped[list["Session"]] = relationship(back_populates="campaign")  # noqa: F821
+    story_threads: Mapped[list["StoryThread"]] = relationship(back_populates="campaign")  # noqa: F821
 
 
 class Sourcebook(Base, UUIDPrimaryKey, TimestampMixin):

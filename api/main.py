@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.bot import router as bot_router
 from api.routes.campaigns import router as campaigns_router
+from api.routes.dm_prep import router as dm_prep_router
 from api.routes.link import router as link_router
 from api.routes.sessions import router as sessions_router
 
@@ -28,12 +29,13 @@ app.add_middleware(
         "http://localhost:5173",  # Local Vite dev
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["*"],
 )
 
 app.include_router(bot_router, prefix="/api/bot", tags=["Bot"])
 app.include_router(campaigns_router, prefix="/api/campaigns", tags=["Campaigns"])
+app.include_router(dm_prep_router, prefix="/api/dm-prep", tags=["DM Prep"])
 app.include_router(link_router, prefix="/api/link", tags=["Account Linking"])
 app.include_router(sessions_router, prefix="/api/sessions", tags=["Sessions"])
 

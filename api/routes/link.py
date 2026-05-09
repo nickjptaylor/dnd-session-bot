@@ -116,6 +116,10 @@ async def verify_linking_code(
 
     log.info(f"Account linked: {email} -> Discord {request.discord_user_id} in guild {request.guild_id} ({sub.tier_name})")
 
+    # Notify Lovable so the website updates in real time
+    from core.services.lovable_callback import notify_link
+    await notify_link(email=email, discord_user_id=request.discord_user_id, guild_id=request.guild_id)
+
     return VerifyCodeResponse(
         success=True,
         email=email,

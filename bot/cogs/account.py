@@ -148,8 +148,15 @@ class AccountCog(commands.Cog):
                 await ctx.followup.send("No account linked in this server.", ephemeral=True)
                 return
 
+            email = link.email
+            guild_id = link.guild_id
+
             await db.delete(link)
             await db.commit()
+
+        # Notify Lovable so the website updates in real time
+        from core.services.lovable_callback import notify_unlink
+        await notify_unlink(email=email, guild_id=guild_id)
 
         await ctx.followup.send("Account unlinked from this server.", ephemeral=True)
         log.info(f"User {ctx.author} unlinked their account in guild {ctx.guild_id}")

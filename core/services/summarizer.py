@@ -62,3 +62,23 @@ class SessionSummarizer:
         summary = message.content[0].text
         log.info(f"Summary generated ({len(summary)} chars)")
         return summary
+
+    async def generate_title(self, summary: str) -> str:
+        """Generate a short, evocative session title from a summary.
+
+        Returns a title like "The Siege of Blackhollow" or "Bargains in Blood".
+        """
+        message = await self.client.messages.create(
+            model=self.model,
+            max_tokens=50,
+            messages=[{"role": "user", "content": (
+                "Generate a short, evocative title for this D&D session (like an episode "
+                "title — 3-6 words, no quotes). Think \"The Siege of Blackhollow\" or "
+                "\"Bargains in Blood\" or \"What Lurks Beneath\". Just the title, nothing else.\n\n"
+                f"{summary[:2000]}"
+            )}],
+        )
+
+        title = message.content[0].text.strip().strip('"\'')
+        log.info(f"Session title generated: {title}")
+        return title

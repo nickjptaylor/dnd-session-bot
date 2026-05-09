@@ -203,6 +203,13 @@ async def process_session_audio(
             srd_rules=srd_rules,
         )
 
+        # 3a-ii: Generate a snappy session title
+        session_title = None
+        try:
+            session_title = await summarizer.generate_title(narrative)
+        except Exception:
+            log.warning("Failed to generate session title (non-fatal)")
+
         # 3b: Key moments (only for players, not the DM)
         log.info(f"Extracting key moments for session {session_id}")
         player_characters = [c for c in characters if c.discord_user_id != dm_discord_id]
@@ -260,6 +267,8 @@ async def process_session_audio(
             result = await db.execute(select(Session).where(Session.id == session_id))
             session = result.scalar_one()
             session.status = "complete"
+            if session_title:
+                session.title = session_title
 
             await db.commit()
 
@@ -426,7 +435,7 @@ async def process_session_audio(
         if channel:
             # Summary embed
             summary_embed = discord.Embed(
-                title="Session Summary",
+                title=session_title or "Session Summary",
                 description=narrative[:4000],  # Discord embed limit
                 color=discord.Color.gold(),
             )

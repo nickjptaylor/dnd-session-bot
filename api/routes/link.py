@@ -35,6 +35,17 @@ class VerifyCodeResponse(BaseModel):
     message: str
 
 
+class CheckStatusRequest(BaseModel):
+    email: str
+
+
+class CheckStatusResponse(BaseModel):
+    linked: bool
+    discord_user_id: int | None = None
+    guild_id: int | None = None
+    tier_name: str | None = None
+
+
 @router.post("/generate", response_model=GenerateCodeResponse)
 async def generate_linking_code(
     request: GenerateCodeRequest,
@@ -110,4 +121,36 @@ async def verify_linking_code(
         email=email,
         tier_name=sub.tier_name,
         message=f"Linked to {email} ({sub.tier_name}). This server now has {sub.tier_name} features!",
+    )
+
+
+@router.post("/check-status", response_model=CheckStatusResponse)
+async def check_link_status(
+    request: CheckStatusRequest,
+    _auth: bool = Depends(verify_api_key),
+):
+    """Check if an email has been linked to a Discord account.
+
+    Called by tavernrecap.com to poll after showing the linking code.
+    When linked=True, the website can move to the next onboarding step.
+    """
+    from sqlalchemy import select
+
+    from core.db import async_session
+    from core.models.user_link import UserLink
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(UserLink).where(UserLink.email == request.email).limit(1)
+        )
+        link = result.scalar_one_or_none()
+
+    if not link:
+        return CheckStatusResponse(linked=False)
+
+    return CheckStatusResponse(
+        linked=True,
+        discord_user_id=link.discord_user_id,
+        guild_id=link.guild_id,
+        tier_name=link.subscription_tier,
     )

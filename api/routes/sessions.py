@@ -64,29 +64,37 @@ class CampaignSessionsResponse(BaseModel):
 @router.get("/guild/{guild_id}", response_model=CampaignSessionsResponse)
 async def get_guild_sessions(
     guild_id: int,
+    campaign_id: str | None = Query(None, description="Specific campaign ID (defaults to active campaign)"),
     limit: int = Query(20, le=50),
     offset: int = Query(0, ge=0),
     _auth: bool = Depends(verify_api_key),
 ):
-    """Get session history for a guild's active campaign."""
+    """Get session history for a guild's campaign. Defaults to the active campaign."""
     async with async_session() as db:
-        # Find active campaign
-        result = await db.execute(
-            select(Campaign)
-            .where(Campaign.guild_id == guild_id, Campaign.is_active == True)  # noqa: E712
-            .limit(1)
-        )
-        campaign = result.scalar_one_or_none()
-
-        if not campaign:
-            # Fall back to any campaign
+        if campaign_id:
+            # Use the specific campaign requested
+            result = await db.execute(
+                select(Campaign).where(Campaign.id == campaign_id, Campaign.guild_id == guild_id)
+            )
+            campaign = result.scalar_one_or_none()
+        else:
+            # Find active campaign
             result = await db.execute(
                 select(Campaign)
-                .where(Campaign.guild_id == guild_id)
-                .order_by(Campaign.created_at.desc())
+                .where(Campaign.guild_id == guild_id, Campaign.is_active == True)  # noqa: E712
                 .limit(1)
             )
             campaign = result.scalar_one_or_none()
+
+            if not campaign:
+                # Fall back to any campaign
+                result = await db.execute(
+                    select(Campaign)
+                    .where(Campaign.guild_id == guild_id)
+                    .order_by(Campaign.created_at.desc())
+                    .limit(1)
+                )
+                campaign = result.scalar_one_or_none()
 
         if not campaign:
             raise HTTPException(status_code=404, detail="No campaign found for this guild")

@@ -12,7 +12,7 @@ PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "dm_coaching.md"
 class DMCoach:
     """Generates DM coaching notes from a session transcript using Claude."""
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model = model
         self._template = Template(PROMPT_PATH.read_text())

@@ -48,8 +48,17 @@ async def process_session_audio(
     try:
         # --- Stage 1: Create session + recording rows ---
         async with async_session() as db:
+            # Auto-number: find the highest session number for this campaign
+            from sqlalchemy import func
+            result = await db.execute(
+                select(func.coalesce(func.max(Session.session_number), 0))
+                .where(Session.campaign_id == campaign_id)
+            )
+            next_number = result.scalar() + 1
+
             session = Session(
                 campaign_id=campaign_id,
+                session_number=next_number,
                 status="processing",
                 voice_channel_id=voice_channel_id,
                 started_by_discord_id=started_by,

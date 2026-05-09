@@ -107,7 +107,7 @@ class FluxImageGenerator:
 class ScenePromptGenerator:
     """Uses Claude to create detailed image prompts from key moment descriptions."""
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model = model
         self._template = Template(SCENE_PROMPT_PATH.read_text())

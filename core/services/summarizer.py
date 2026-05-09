@@ -24,7 +24,7 @@ class CharacterContext:
 class SessionSummarizer:
     """Generates a narrative summary of a D&D session using Claude."""
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model = model
         self._template = Template(PROMPT_PATH.read_text())

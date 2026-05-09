@@ -44,7 +44,7 @@ class ExtractedThread:
 class ThreadExtractor:
     """Extracts unresolved story threads from session summaries using Claude."""
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model = model
         self._template = Template((PROMPTS_DIR / "extract_threads.md").read_text())
@@ -134,7 +134,7 @@ class CharacterInfo:
 class IntroGenerator:
     """Generates dramatic session intro read-aloud text using Claude."""
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model = model
         self._template = Template((PROMPTS_DIR / "session_intro.md").read_text())
@@ -199,7 +199,7 @@ class SuggestedHook:
 class HookSuggester:
     """Suggests plot hooks based on campaign context using Claude."""
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model = model
         self._template = Template((PROMPTS_DIR / "suggest_plot_hooks.md").read_text())

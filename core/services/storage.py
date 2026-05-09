@@ -3,6 +3,7 @@ import logging
 from typing import BinaryIO
 
 import boto3
+from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
 from bot.config import settings
@@ -26,6 +27,8 @@ class S3Storage:
             endpoint_url=endpoint or settings.s3_endpoint,
             aws_access_key_id=access_key or settings.s3_access_key,
             aws_secret_access_key=secret_key or settings.s3_secret_key,
+            config=BotoConfig(signature_version="s3v4"),
+            region_name="auto",
         )
         self._ensure_bucket()
 

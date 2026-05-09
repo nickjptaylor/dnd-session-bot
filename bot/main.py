@@ -42,6 +42,7 @@ def run():
     bot.load_extension("bot.cogs.character")
     bot.load_extension("bot.cogs.summary")
     bot.load_extension("bot.cogs.account")
+    bot.load_extension("bot.cogs.help")
     bot.run(settings.discord_bot_token)
 
 
